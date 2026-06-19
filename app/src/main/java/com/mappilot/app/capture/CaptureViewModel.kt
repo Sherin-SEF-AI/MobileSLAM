@@ -1,0 +1,122 @@
+package com.mappilot.app.capture
+
+import android.view.Surface
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.mappilot.core.common.bus.EventBus
+import com.mappilot.core.model.Constellation
+import com.mappilot.core.model.GnssEpoch
+import com.mappilot.core.model.MapPilotEvent
+import com.mappilot.core.model.StreamIds
+import com.mappilot.core.timesync.SyncEngine
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
+import javax.inject.Inject
+
+/**
+ * Backs the Capture screen HUD. Subscribes to the [SyncEngine] health (rates,
+ * drift, latency, drops per stream) and the [EventBus] (latest frame + GNSS
+ * epoch), and projects them into an immutable [CaptureHudState]. No value is
+ * synthesized — when a stream has produced nothing, its fields read zero/empty,
+ * not a plausible placeholder.
+ */
+@HiltViewModel
+class CaptureViewModel @Inject constructor(
+    private val sensorHub: SensorHub,
+    private val syncEngine: SyncEngine,
+    private val eventBus: EventBus,
+) : ViewModel() {
+
+    private val latestFrame = MutableStateFlow<MapPilotEvent.FrameCaptured?>(null)
+    private val latestEpoch = MutableStateFlow<GnssEpoch?>(null)
+
+    init {
+        eventBus.events
+            .onEach { event ->
+                when (event) {
+                    is MapPilotEvent.FrameCaptured -> latestFrame.value = event
+                    is MapPilotEvent.GnssFixReceived -> latestEpoch.value = event.epoch
+                    else -> Unit
+                }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    val hud: StateFlow<CaptureHudState> =
+        combine(
+            syncEngine.health,
+            latestFrame,
+            latestEpoch,
+        ) { health, frame, epoch ->
+            val cam = sensorHub.camera
+            val camHealth = health.streams[StreamIds.CAMERA]
+            val frameMeta = frame?.frame
+            val gnssHud = epoch?.let { e ->
+                GnssHud(
+                    hasFix = e.fix != null,
+                    fix = e.fix,
+                    satellitesUsed = e.satellitesUsed,
+                    satellitesVisible = e.satellitesVisible,
+                    meanCn0 = e.meanCn0,
+                    perConstellation = e.satellites.groupingBy { it.constellation }.eachCount(),
+                )
+            } ?: GnssHud()
+
+            CaptureHudState(
+                running = sensorHub.isRunning,
+                camera = CameraHud(
+                    available = cam.isRunning,
+                    width = cam.resolution.width,
+                    height = cam.resolution.height,
+                    fps = camHealth?.rateHz ?: 0.0,
+                    timestampSource = cam.timestampSource,
+                    exposureMs = frameMeta?.let { it.exposureNs / 1_000_000.0 },
+                    iso = frameMeta?.iso,
+                    hasIntrinsics = frameMeta?.intrinsics != null,
+                ),
+                imu = ImuHud(
+                    accelHz = health.streams[StreamIds.IMU_ACCEL]?.rateHz ?: 0.0,
+                    gyroHz = health.streams[StreamIds.IMU_GYRO]?.rateHz ?: 0.0,
+                    magHz = health.streams[StreamIds.IMU_MAG]?.rateHz ?: 0.0,
+                    rotationHz = health.streams[StreamIds.IMU_ROTATION]?.rateHz ?: 0.0,
+                    droppedTotal = health.streams.values.sumOf { it.samplesDropped },
+                    directChannelSupported = directChannelSupported,
+                ),
+                gnss = gnssHud,
+                streams = health.streams.values.sortedBy { it.streamId },
+                warnings = health.warnings.takeLast(MAX_WARNINGS).asReversed(),
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CaptureHudState())
+
+    private val directChannelSupported: Boolean by lazy {
+        runCatching { sensorHub.imu.supportsDirectChannel() }.getOrDefault(false)
+    }
+
+    fun onPreviewSurfaceAvailable(surface: Surface) {
+        sensorHub.setPreviewSurface(surface)
+        if (!sensorHub.isRunning) sensorHub.start()
+    }
+
+    fun onPreviewSurfaceDestroyed() {
+        sensorHub.setPreviewSurface(null)
+    }
+
+    fun startCapture() = sensorHub.start()
+
+    fun stopCapture() = sensorHub.stop()
+
+    override fun onCleared() {
+        sensorHub.stop()
+    }
+
+    private companion object {
+        const val MAX_WARNINGS = 6
+    }
+}

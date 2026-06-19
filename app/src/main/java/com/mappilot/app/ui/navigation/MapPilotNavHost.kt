@@ -15,8 +15,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.mappilot.app.capture.CaptureScreen
 import com.mappilot.app.ui.screens.AssetBrowserScreen
-import com.mappilot.app.ui.screens.CaptureScreen
 import com.mappilot.app.ui.screens.ExportScreen
 import com.mappilot.app.ui.screens.JobsScreen
 import com.mappilot.app.ui.screens.MapExplorerScreen

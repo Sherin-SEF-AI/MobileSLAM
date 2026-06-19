@@ -10,14 +10,6 @@ import androidx.compose.ui.Modifier
  */
 
 @Composable
-fun CaptureScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Capture",
-    subtitle = "Live preview + data-dense HUD (fps, IMU Hz, GNSS, sync offset, SLAM state, thermal) and the record control.",
-    landsInPhase = "Phase 1–3",
-    modifier = modifier,
-)
-
-@Composable
 fun SessionsScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
     title = "Sessions",
     subtitle = "Recorded trips with distance, duration, quality chips and upload/processing state.",

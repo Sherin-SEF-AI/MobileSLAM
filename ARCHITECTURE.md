@@ -36,10 +36,10 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:core:model` | Domain models (geometry, sensors, SLAM, assets, trip) + `MapPilotEvent` | **built** |
 | `:core:common` | `MapPilotResult`, `TimeSource`, dispatchers, logging, `CaptureConfig`, `EventBus`, DI | **built** |
 | `:core:database` | Room + SQLite(R*Tree) + sqlite-vec | planned: Phase 5 |
-| `:core:time-sync` | `SyncEngine`: timebase normalization, drift/latency/validation | planned: Phase 1 |
-| `:sensors:camera` | SharedCamera + Camera2 capture, intrinsics/exposure | planned: Phase 1 |
-| `:sensors:imu` | 6 IMU streams ≥100 Hz, SensorDirectChannel | planned: Phase 1 |
-| `:sensors:gnss` | Location + raw GNSS + satellite status (6 constellations) | planned: Phase 1 |
+| `:core:time-sync` | `SyncEngine`: timebase normalization, drift/latency/validation | **built** |
+| `:sensors:camera` | Camera2 capture, intrinsics/exposure/ISO, ts-source detection | **built** (ARCore SharedCamera: Phase 3) |
+| `:sensors:imu` | 6 IMU streams ≥100 Hz, ring-buffered, SensorDirectChannel (opt-in) | **built** |
+| `:sensors:gnss` | Location + raw GNSS + satellite status (6 constellations) | **built** |
 | `:recording:mcap` | Custom chunked/indexed/CRC/segmented MCAP writer | planned: Phase 2 |
 | `:recording:video` | mp4 encode + frame↔PTS↔ts map | planned: Phase 2 |
 | `:slam:core` | `SlamEngine` interface, session, pose graph | planned: Phase 3 |

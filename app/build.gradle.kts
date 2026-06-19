@@ -57,6 +57,12 @@ dependencies {
     // Core
     implementation(project(":core:common"))
     implementation(project(":core:model"))
+    implementation(project(":core:time-sync"))
+
+    // Sensors
+    implementation(project(":sensors:imu"))
+    implementation(project(":sensors:gnss"))
+    implementation(project(":sensors:camera"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
