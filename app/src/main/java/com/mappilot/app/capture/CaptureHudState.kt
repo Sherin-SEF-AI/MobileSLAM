@@ -5,6 +5,7 @@ import com.mappilot.core.model.GnssFix
 import com.mappilot.core.model.StreamHealth
 import com.mappilot.core.model.SyncWarning
 import com.mappilot.core.model.TimestampSource
+import com.mappilot.core.model.TrackingState
 
 /** Immutable HUD snapshot rendered by the Capture screen. All values measured. */
 data class CaptureHudState(
@@ -12,8 +13,24 @@ data class CaptureHudState(
     val camera: CameraHud = CameraHud(),
     val imu: ImuHud = ImuHud(),
     val gnss: GnssHud = GnssHud(),
+    val slam: SlamHud = SlamHud(),
     val streams: List<StreamHealth> = emptyList(),
     val warnings: List<SyncWarning> = emptyList(),
+)
+
+data class SlamHud(
+    val available: Boolean = false,
+    val trackingState: TrackingState = TrackingState.STOPPED,
+    val quality: Float = -1f,
+    val keyframes: Int = 0,
+    val landmarks: Int = 0,
+    val trajectoryLengthM: Double = 0.0,
+    val unavailableReason: String? = null,
+    // Georeferencing (Umeyama VIO->ENU)
+    val georeferenced: Boolean = false,
+    val correspondences: Int = 0,
+    val alignmentRmsM: Double = Double.NaN,
+    val alignmentScale: Double = Double.NaN,
 )
 
 data class CameraHud(

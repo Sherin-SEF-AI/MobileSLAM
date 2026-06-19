@@ -70,6 +70,12 @@ dependencies {
     implementation(project(":recording:video"))
     implementation(libs.kotlinx.serialization.json)
 
+    // SLAM + geo
+    implementation(project(":slam:core"))
+    implementation(project(":slam:arcore"))
+    implementation(project(":slam:fusion"))
+    implementation(project(":geo:trajectory"))
+
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

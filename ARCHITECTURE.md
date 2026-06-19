@@ -42,14 +42,15 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:sensors:gnss` | Location + raw GNSS + satellite status (6 constellations) | **built** |
 | `:recording:mcap` | Custom chunked/indexed/CRC/segmented MCAP writer + self-describing protobuf + crash recovery | **built** |
 | `:recording:video` | MediaCodec mp4 encode + frame↔PTS↔ts map | **built** (device-validated) |
-| `:slam:core` | `SlamEngine` interface, session, pose graph | planned: Phase 3 |
-| `:slam:arcore` | ARCore VIO backend | planned: Phase 3 |
-| `:slam:fusion` | GNSS↔VIO Umeyama alignment | planned: Phase 3 |
+| `:slam:core` | `SlamEngine` interface, `PoseGraph`, `KeyframeSelector` | **built** |
+| `:slam:arcore` | ARCore VIO backend (Session + offscreen EGL, poses/landmarks) | **built** (SharedCamera glue device-pending) |
+| `:slam:fusion` | Umeyama VIO→ENU + WGS84 geodesy + online `GnssVioFusion` | **built** |
 | `:perception:core` | `InferenceEngine`, frame scheduler | planned: Phase 4 |
 | `:perception:detection` | YOLO11 (LiteRT/ONNX/NCNN) | planned: Phase 4 |
 | `:perception:depth` | Depth Anything V2 + ARCore depth | planned: Phase 4 |
 | `:assets:extraction` | detect→dedup→backproject→DB | planned: Phase 4 |
-| `:geo:trajectory` / `:geo:mapping` | trajectory + map assembly | planned: Phase 3/6 |
+| `:geo:trajectory` | `TrajectoryBuilder` + GeoJSON/CSV export | **built** |
+| `:geo:mapping` | sparse map / asset map assembly | planned: Phase 6 |
 | `:search` | spatial + vector + semantic queries | planned: Phase 5 |
 | `:export` | MCAP/GeoJSON/PLY/PCD/CSV + cloud adapters | planned: Phase 7 |
 | `:cloud:client` | resumable upload, job API, provenance | planned: Phase 8 |

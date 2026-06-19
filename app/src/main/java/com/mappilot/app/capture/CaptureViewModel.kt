@@ -38,6 +38,7 @@ class CaptureViewModel @Inject constructor(
     private val sensorHub: SensorHub,
     private val syncEngine: SyncEngine,
     private val eventBus: EventBus,
+    private val slamController: com.mappilot.app.slam.SlamController,
     recordingController: RecordingController,
 ) : ViewModel() {
 
@@ -64,7 +65,9 @@ class CaptureViewModel @Inject constructor(
             syncEngine.health,
             latestFrame,
             latestEpoch,
-        ) { health, frame, epoch ->
+            slamController.slamState,
+            slamController.fusionState,
+        ) { health, frame, epoch, slam, fusion ->
             val cam = sensorHub.camera
             val camHealth = health.streams[StreamIds.CAMERA]
             val frameMeta = frame?.frame
@@ -100,6 +103,19 @@ class CaptureViewModel @Inject constructor(
                     directChannelSupported = directChannelSupported,
                 ),
                 gnss = gnssHud,
+                slam = SlamHud(
+                    available = slam.available,
+                    trackingState = slam.trackingState,
+                    quality = slam.quality,
+                    keyframes = slam.keyframeCount,
+                    landmarks = slam.landmarkCount,
+                    trajectoryLengthM = slam.trajectoryLengthM,
+                    unavailableReason = slam.unavailableReason,
+                    georeferenced = fusion.aligned,
+                    correspondences = fusion.correspondences,
+                    alignmentRmsM = fusion.rmsErrorM,
+                    alignmentScale = fusion.scale,
+                ),
                 streams = health.streams.values.sortedBy { it.streamId },
                 warnings = health.warnings.takeLast(MAX_WARNINGS).asReversed(),
             )

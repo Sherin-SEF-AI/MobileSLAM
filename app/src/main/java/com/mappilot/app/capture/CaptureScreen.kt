@@ -34,6 +34,7 @@ import com.mappilot.core.model.Constellation
 import com.mappilot.core.model.RecordingState
 import com.mappilot.core.model.StreamHealth
 import com.mappilot.core.model.TimestampSource
+import com.mappilot.core.model.TrackingState
 
 /**
  * Phase-1 Capture screen: a live camera preview behind a data-dense HUD driven
@@ -156,6 +157,24 @@ private fun HudOverlay(hud: CaptureHudState, modifier: Modifier = Modifier) {
             Telemetry("lon", fmt(fix.longitude, "%.6f"))
             Telemetry("h_acc", if (fix.hAccuracyM >= 0) fmt(fix.hAccuracyM.toDouble(), "%.1f") + " m" else "—")
         }
+
+        Section("SLAM")
+        val s = hud.slam
+        if (s.available) {
+            Telemetry("tracking", s.trackingState.name, warn = s.trackingState != TrackingState.TRACKING)
+            Telemetry("quality", if (s.quality >= 0) fmt(s.quality.toDouble(), "%.2f") else "—")
+            Telemetry("keyframes", s.keyframes.toString())
+            Telemetry("landmarks", s.landmarks.toString())
+            Telemetry("traj_len", fmt(s.trajectoryLengthM, "%.1f") + " m")
+        } else {
+            Telemetry("status", s.unavailableReason ?: "UNAVAILABLE", warn = true)
+        }
+
+        Section("GEOREF")
+        Telemetry("aligned", if (s.georeferenced) "LOCK" else "pending", warn = !s.georeferenced)
+        Telemetry("corresp", s.correspondences.toString())
+        Telemetry("rms", if (s.alignmentRmsM.isNaN()) "—" else fmt(s.alignmentRmsM, "%.2f") + " m")
+        Telemetry("scale", if (s.alignmentScale.isNaN()) "—" else fmt(s.alignmentScale, "%.3f"))
 
         Section("SYNC")
         hud.streams.forEach { StreamRow(it) }
