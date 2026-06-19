@@ -40,8 +40,8 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:sensors:camera` | Camera2 capture, intrinsics/exposure/ISO, ts-source detection | **built** (ARCore SharedCamera: Phase 3) |
 | `:sensors:imu` | 6 IMU streams ≥100 Hz, ring-buffered, SensorDirectChannel (opt-in) | **built** |
 | `:sensors:gnss` | Location + raw GNSS + satellite status (6 constellations) | **built** |
-| `:recording:mcap` | Custom chunked/indexed/CRC/segmented MCAP writer | planned: Phase 2 |
-| `:recording:video` | mp4 encode + frame↔PTS↔ts map | planned: Phase 2 |
+| `:recording:mcap` | Custom chunked/indexed/CRC/segmented MCAP writer + self-describing protobuf + crash recovery | **built** |
+| `:recording:video` | MediaCodec mp4 encode + frame↔PTS↔ts map | **built** (device-validated) |
 | `:slam:core` | `SlamEngine` interface, session, pose graph | planned: Phase 3 |
 | `:slam:arcore` | ARCore VIO backend | planned: Phase 3 |
 | `:slam:fusion` | GNSS↔VIO Umeyama alignment | planned: Phase 3 |

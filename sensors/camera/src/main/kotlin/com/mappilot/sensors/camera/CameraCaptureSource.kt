@@ -77,6 +77,7 @@ class CameraCaptureSource @Inject constructor(
     private var internalSurface: Surface? = null
 
     @Volatile private var previewSurface: Surface? = null
+    @Volatile private var recordingSurface: Surface? = null
     private val frameId = AtomicLong(0)
     private var cameraId: String? = null
     private var characteristics: CameraCharacteristics? = null
@@ -88,6 +89,23 @@ class CameraCaptureSource @Inject constructor(
     /** Provide a UI preview surface. Takes effect on next [start]/reconfigure. */
     fun setPreviewSurface(surface: Surface?) {
         previewSurface = surface
+    }
+
+    /**
+     * Provide the video-encoder input surface so recorded frames are captured to
+     * mp4 alongside metadata. Rebuilds the capture session if already running.
+     */
+    fun setRecordingSurface(surface: Surface?) {
+        recordingSurface = surface
+        val cam = device ?: return
+        val h = handler ?: return
+        h.post { runCatching { reconfigure(cam, h) } }
+    }
+
+    private fun reconfigure(camera: CameraDevice, h: Handler) {
+        runCatching { session?.close() }
+        session = null
+        createSession(camera, h)
     }
 
     @Synchronized
@@ -147,9 +165,12 @@ class CameraCaptureSource @Inject constructor(
     }
 
     private fun createSession(camera: CameraDevice, h: Handler) {
-        val target = previewSurface ?: createInternalSurface()
+        val primary = previewSurface ?: createInternalSurface()
+        val targets = listOfNotNull(primary, recordingSurface)
         val executor = Executor { command -> h.post(command) }
-        val outputs = listOf(OutputConfiguration(target))
+        val outputs = targets.map { OutputConfiguration(it) }
+        // RECORD template when an encoder surface is attached, else PREVIEW.
+        val template = if (recordingSurface != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
         val config = SessionConfiguration(
             SessionConfiguration.SESSION_REGULAR,
             outputs,
@@ -157,8 +178,8 @@ class CameraCaptureSource @Inject constructor(
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(s: CameraCaptureSession) {
                     session = s
-                    val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                        addTarget(target)
+                    val request = camera.createCaptureRequest(template).apply {
+                        targets.forEach { addTarget(it) }
                         set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                     }.build()
                     s.setRepeatingRequest(request, captureCallback, h)

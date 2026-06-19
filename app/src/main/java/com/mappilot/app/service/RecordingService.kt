@@ -10,31 +10,26 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.mappilot.app.R
-import com.mappilot.core.common.bus.EventBus
+import com.mappilot.app.recording.RecordingController
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
-import com.mappilot.core.common.time.TimeSource
-import com.mappilot.core.model.MapPilotEvent
-import com.mappilot.core.model.RecordingState
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 /**
- * Foreground service that will own a recording session (Phase 2). It already
- * establishes the lifecycle, typed-FGS promotion, and RecordingState event
- * emission so later phases plug capture into a stable host. Recording is owned
- * here and is never gated by perception or upload.
+ * Foreground service that owns the recording session. Recording is owned here
+ * and is never gated by perception or upload (§10). The actual capture/persist
+ * pipeline lives in [RecordingController]; this service provides the typed-FGS
+ * lifecycle and the user-visible ongoing notification.
  */
 @AndroidEntryPoint
 class RecordingService : Service() {
 
-    @Inject lateinit var eventBus: EventBus
-    @Inject lateinit var timeSource: TimeSource
+    @Inject lateinit var controller: RecordingController
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        emitState(RecordingState.IDLE)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -47,7 +42,6 @@ class RecordingService : Service() {
     }
 
     private fun startRecording() {
-        emitState(RecordingState.STARTING)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.recording_notification_title))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -64,23 +58,15 @@ class RecordingService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        // Phase 2 wires the capture + MCAP pipeline here.
-        emitState(RecordingState.RECORDING)
+        controller.start()
         Log.i(Streams.SERVICE, "Recording session started")
     }
 
     private fun stopRecording() {
-        emitState(RecordingState.STOPPING)
+        val result = controller.stop()
+        Log.i(Streams.SERVICE, "Recording stopped: $result")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        emitState(RecordingState.IDLE)
-        Log.i(Streams.SERVICE, "Recording session stopped")
-    }
-
-    private fun emitState(state: RecordingState) {
-        eventBus.emit(
-            MapPilotEvent.RecordingStateChanged(timeSource.elapsedRealtimeNanos(), state),
-        )
     }
 
     private fun createChannel() {
@@ -100,5 +86,15 @@ class RecordingService : Service() {
         const val ACTION_STOP = "com.mappilot.app.action.STOP_RECORDING"
         private const val CHANNEL_ID = "mappilot_recording"
         private const val NOTIFICATION_ID = 1001
+
+        fun start(context: Context) {
+            val intent = Intent(context, RecordingService::class.java).setAction(ACTION_START)
+            context.startForegroundService(intent)
+        }
+
+        fun stop(context: Context) {
+            val intent = Intent(context, RecordingService::class.java).setAction(ACTION_STOP)
+            context.startService(intent)
+        }
     }
 }

@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+package mappilot;
+
+option java_package = "com.mappilot.recording.mcap.proto";
+option java_outer_classname = "MapPilotProto";
+option java_multiple_files = true;
+
+// All timestamps are nanoseconds in the unified elapsedRealtimeNanos base.
+
+message Vec3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Quaternion {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+  double w = 4;
+}
+
+message Intrinsics {
+  double fx = 1;
+  double fy = 2;
+  double cx = 3;
+  double cy = 4;
+  double k1 = 5;
+  double k2 = 6;
+  double p1 = 7;
+  double p2 = 8;
+  double k3 = 9;
+}
+
+// /camera
+message CameraFrame {
+  uint64 frame_id = 1;
+  uint64 timestamp_ns = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  int64 exposure_ns = 5;
+  uint32 iso = 6;
+  Intrinsics intrinsics = 7;     // absent when device is uncalibrated
+  bool has_intrinsics = 8;
+  int64 video_pts_ns = 9;
+  bool is_keyframe = 10;
+}
+
+// /gps/fix
+message GpsFix {
+  uint64 timestamp_ns = 1;
+  double lat = 2;
+  double lon = 3;
+  double alt = 4;
+  float speed_mps = 5;
+  float bearing_deg = 6;
+  float h_accuracy_m = 7;
+  float v_accuracy_m = 8;
+  string provider = 9;
+}
+
+// /gps/raw
+message GpsRaw {
+  uint64 timestamp_ns = 1;
+  repeated Measurement measurements = 2;
+
+  message Measurement {
+    int32 svid = 1;
+    string constellation = 2;
+    double pseudorange_rate = 3;
+    double accumulated_delta_range = 4;
+    double cn0_dbhz = 5;
+    float carrier_freq_hz = 6;
+    int32 state = 7;
+  }
+}
+
+// /gps/sat
+message GpsSat {
+  uint64 timestamp_ns = 1;
+  repeated Sat sats = 2;
+
+  message Sat {
+    int32 svid = 1;
+    string constellation = 2;
+    float cn0_dbhz = 3;
+    bool used_in_fix = 4;
+    float az_deg = 5;
+    float el_deg = 6;
+  }
+}
+
+// /imu/accel, /imu/gyro, /imu/mag, /imu/linear_accel, /imu/gravity
+message ImuSample {
+  uint64 timestamp_ns = 1;
+  float x = 2;
+  float y = 3;
+  float z = 4;
+  int32 accuracy = 5;
+}
+
+// /imu/rotation_vector
+message RotationVector {
+  uint64 timestamp_ns = 1;
+  float qx = 2;
+  float qy = 3;
+  float qz = 4;
+  float qw = 5;
+  int32 accuracy = 6;
+}
+
+// /pose
+message Pose {
+  uint64 timestamp_ns = 1;
+  Vec3 position = 2;
+  Quaternion orientation = 3;
+  string tracking_state = 4;
+  float confidence = 5;
+}
+
+// /pose/enu
+message PoseEnu {
+  uint64 timestamp_ns = 1;
+  Vec3 position = 2;
+  Quaternion orientation = 3;
+  uint64 sim_transform_id = 4;
+}
+
+// /landmarks
+message Landmarks {
+  uint64 timestamp_ns = 1;
+  repeated Point points = 2;
+
+  message Point {
+    uint64 id = 1;
+    float x = 2;
+    float y = 3;
+    float z = 4;
+    float confidence = 5;
+  }
+}
+
+// /assets
+message Assets {
+  uint64 timestamp_ns = 1;
+  repeated Asset assets = 2;
+
+  message BBox {
+    float left = 1;
+    float top = 2;
+    float right = 3;
+    float bottom = 4;
+  }
+
+  message Asset {
+    uint64 id = 1;
+    string asset_class = 2;
+    double lat = 3;
+    double lon = 4;
+    double alt = 5;
+    BBox bbox = 6;
+    float confidence = 7;
+    uint64 source_frame_id = 8;
+    float depth_m = 9;
+  }
+}
+
+// /events
+message Event {
+  uint64 timestamp_ns = 1;
+  string type = 2;
+  string payload = 3;
+}
+
+// /calibration (one-shot)
+message Calibration {
+  string device_model = 1;
+  string os_version = 2;
+  Intrinsics camera_intrinsics = 3;
+  bool has_camera_intrinsics = 4;
+  uint32 image_width = 5;
+  uint32 image_height = 6;
+  string camera_timestamp_source = 7;
+  map<string, int64> timebase_offsets_ns = 8;
+}

@@ -1,9 +1,14 @@
 package com.mappilot.app.capture
 
+import android.content.Context
 import android.view.Surface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mappilot.app.recording.RecordingController
+import com.mappilot.app.service.RecordingService
 import com.mappilot.core.common.bus.EventBus
+import com.mappilot.core.model.RecordingState
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.mappilot.core.model.Constellation
 import com.mappilot.core.model.GnssEpoch
 import com.mappilot.core.model.MapPilotEvent
@@ -29,10 +34,15 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class CaptureViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val sensorHub: SensorHub,
     private val syncEngine: SyncEngine,
     private val eventBus: EventBus,
+    recordingController: RecordingController,
 ) : ViewModel() {
+
+    /** Recording state, driven by the foreground service / controller. */
+    val recordingState: StateFlow<RecordingState> = recordingController.state
 
     private val latestFrame = MutableStateFlow<MapPilotEvent.FrameCaptured?>(null)
     private val latestEpoch = MutableStateFlow<GnssEpoch?>(null)
@@ -111,6 +121,14 @@ class CaptureViewModel @Inject constructor(
     fun startCapture() = sensorHub.start()
 
     fun stopCapture() = sensorHub.stop()
+
+    /** Toggle recording via the foreground service (FGS owns the session). */
+    fun toggleRecording() {
+        when (recordingState.value) {
+            RecordingState.RECORDING, RecordingState.STARTING -> RecordingService.stop(context)
+            else -> RecordingService.start(context)
+        }
+    }
 
     override fun onCleared() {
         sensorHub.stop()

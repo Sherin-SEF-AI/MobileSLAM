@@ -27,7 +27,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mappilot.app.ui.theme.MapPilotColors
 import com.mappilot.app.ui.theme.TelemetryTextStyle
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.mappilot.core.model.Constellation
+import com.mappilot.core.model.RecordingState
 import com.mappilot.core.model.StreamHealth
 import com.mappilot.core.model.TimestampSource
 
@@ -41,6 +45,7 @@ fun CaptureScreen(
     viewModel: CaptureViewModel = hiltViewModel(),
 ) {
     val hud by viewModel.hud.collectAsStateWithLifecycle()
+    val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
 
     Box(modifier = modifier.fillMaxSize().background(MapPilotColors.Background)) {
         AndroidView(
@@ -68,6 +73,39 @@ fun CaptureScreen(
                 .fillMaxWidth()
                 .align(Alignment.TopStart)
                 .padding(12.dp),
+        )
+
+        RecordControl(
+            state = recordingState,
+            onToggle = viewModel::toggleRecording,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp),
+        )
+    }
+}
+
+/** The single, unmistakable record control. Red square when recording, ring when idle. */
+@Composable
+private fun RecordControl(
+    state: RecordingState,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val recording = state == RecordingState.RECORDING || state == RecordingState.STARTING
+    Box(
+        modifier = modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .border(3.dp, MapPilotColors.OnSurface, CircleShape)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(if (recording) 28.dp else 56.dp)
+                .clip(if (recording) RoundedCornerShape(6.dp) else CircleShape)
+                .background(MapPilotColors.Recording),
         )
     }
 }
