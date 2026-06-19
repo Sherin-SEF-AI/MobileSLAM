@@ -176,6 +176,17 @@ private fun HudOverlay(hud: CaptureHudState, modifier: Modifier = Modifier) {
         Telemetry("rms", if (s.alignmentRmsM.isNaN()) "—" else fmt(s.alignmentRmsM, "%.2f") + " m")
         Telemetry("scale", if (s.alignmentScale.isNaN()) "—" else fmt(s.alignmentScale, "%.3f"))
 
+        Section("PERCEPTION")
+        val p = hud.perception
+        if (p.active) {
+            Telemetry("detector", p.delegate)
+            Telemetry("proc/drop", "${p.framesProcessed}/${p.framesDropped}")
+            Telemetry("detections", p.lastDetections.toString())
+            Telemetry("assets", p.assetCount.toString())
+        } else {
+            Telemetry("status", p.unavailableReason ?: "idle", warn = p.unavailableReason != null)
+        }
+
         Section("SYNC")
         hud.streams.forEach { StreamRow(it) }
 

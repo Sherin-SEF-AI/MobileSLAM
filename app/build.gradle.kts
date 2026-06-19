@@ -76,6 +76,12 @@ dependencies {
     implementation(project(":slam:fusion"))
     implementation(project(":geo:trajectory"))
 
+    // Perception + assets
+    implementation(project(":perception:core"))
+    implementation(project(":perception:detection"))
+    implementation(project(":perception:depth"))
+    implementation(project(":assets:extraction"))
+
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

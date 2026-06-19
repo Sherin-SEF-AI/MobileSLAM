@@ -2,6 +2,7 @@ package com.mappilot.app.recording
 
 import android.content.Context
 import com.mappilot.app.capture.SensorHub
+import com.mappilot.app.perception.PerceptionController
 import com.mappilot.app.slam.SlamController
 import com.mappilot.core.common.bus.EventBus
 import com.mappilot.core.common.config.ConfigProvider
@@ -30,6 +31,7 @@ class RecordingController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val sensorHub: SensorHub,
     private val slamController: SlamController,
+    private val perceptionController: PerceptionController,
     private val eventBus: EventBus,
     private val timeSource: TimeSource,
     private val syncEngine: SyncEngine,
@@ -56,6 +58,8 @@ class RecordingController @Inject constructor(
             // Best-effort SLAM + georeferencing. If the camera is busy, the engine
             // reports UNAVAILABLE loudly (no fabricated poses); recording continues.
             slamController.start()
+            // On-device perception runs at reduced cadence, decoupled from record.
+            perceptionController.start()
             emit(RecordingState.RECORDING)
         } catch (e: Exception) {
             Log.e(Streams.RECORDING, e, "Failed to start recording")
@@ -67,6 +71,7 @@ class RecordingController @Inject constructor(
     fun stop(): RecordingResult? {
         val s = session ?: return null
         emit(RecordingState.STOPPING)
+        perceptionController.stop()
         slamController.stop()
         val result = try {
             s.stop()

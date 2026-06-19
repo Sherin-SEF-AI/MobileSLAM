@@ -14,8 +14,19 @@ data class CaptureHudState(
     val imu: ImuHud = ImuHud(),
     val gnss: GnssHud = GnssHud(),
     val slam: SlamHud = SlamHud(),
+    val perception: PerceptionHud = PerceptionHud(),
     val streams: List<StreamHealth> = emptyList(),
     val warnings: List<SyncWarning> = emptyList(),
+)
+
+data class PerceptionHud(
+    val active: Boolean = false,
+    val delegate: String = "none",
+    val unavailableReason: String? = null,
+    val framesProcessed: Long = 0,
+    val framesDropped: Long = 0,
+    val lastDetections: Int = 0,
+    val assetCount: Int = 0,
 )
 
 data class SlamHud(

@@ -39,6 +39,7 @@ class CaptureViewModel @Inject constructor(
     private val syncEngine: SyncEngine,
     private val eventBus: EventBus,
     private val slamController: com.mappilot.app.slam.SlamController,
+    private val perceptionController: com.mappilot.app.perception.PerceptionController,
     recordingController: RecordingController,
 ) : ViewModel() {
 
@@ -118,6 +119,18 @@ class CaptureViewModel @Inject constructor(
                 ),
                 streams = health.streams.values.sortedBy { it.streamId },
                 warnings = health.warnings.takeLast(MAX_WARNINGS).asReversed(),
+            )
+        }.combine(perceptionController.state) { base, perc ->
+            base.copy(
+                perception = PerceptionHud(
+                    active = perc.active,
+                    delegate = perc.delegate,
+                    unavailableReason = perc.unavailableReason,
+                    framesProcessed = perc.framesProcessed,
+                    framesDropped = perc.framesDropped,
+                    lastDetections = perc.lastDetections,
+                    assetCount = perc.assetCount,
+                ),
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CaptureHudState())
 

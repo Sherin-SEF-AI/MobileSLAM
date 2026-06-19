@@ -45,10 +45,10 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:slam:core` | `SlamEngine` interface, `PoseGraph`, `KeyframeSelector` | **built** |
 | `:slam:arcore` | ARCore VIO backend (Session + offscreen EGL, poses/landmarks) | **built** (SharedCamera glue device-pending) |
 | `:slam:fusion` | Umeyama VIO→ENU + WGS84 geodesy + online `GnssVioFusion` | **built** |
-| `:perception:core` | `InferenceEngine`, frame scheduler | planned: Phase 4 |
-| `:perception:detection` | YOLO11 (LiteRT/ONNX/NCNN) | planned: Phase 4 |
-| `:perception:depth` | Depth Anything V2 + ARCore depth | planned: Phase 4 |
-| `:assets:extraction` | detect→dedup→backproject→DB | planned: Phase 4 |
+| `:perception:core` | Detector/DepthEstimator interfaces, `FrameScheduler`, `Yuv` | **built** |
+| `:perception:detection` | YOLO11n (LiteRT) + pure `YoloDecoder`/`Letterbox` + COCO map | **built** (model bundled, verified real) |
+| `:perception:depth` | Depth Anything V2 (LiteRT) fallback; ARCore depth primary | **built** (model not bundled → loud Unavailable) |
+| `:assets:extraction` | `Backprojection` + `AssetTracker` dedup (pure, tested) | **built** |
 | `:geo:trajectory` | `TrajectoryBuilder` + GeoJSON/CSV export | **built** |
 | `:geo:mapping` | sparse map / asset map assembly | planned: Phase 6 |
 | `:search` | spatial + vector + semantic queries | planned: Phase 5 |

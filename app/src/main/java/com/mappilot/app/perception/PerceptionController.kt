@@ -1,0 +1,217 @@
+package com.mappilot.app.perception
+
+import com.mappilot.app.capture.SensorHub
+import com.mappilot.assets.extraction.AssetTracker
+import com.mappilot.assets.extraction.Backprojection
+import com.mappilot.core.common.bus.EventBus
+import com.mappilot.core.common.config.ConfigProvider
+import com.mappilot.core.common.log.Log
+import com.mappilot.core.common.log.Streams
+import com.mappilot.core.common.result.MapPilotResult
+import com.mappilot.core.common.time.TimeSource
+import com.mappilot.core.model.Asset
+import com.mappilot.core.model.CameraIntrinsics
+import com.mappilot.core.model.Detection
+import com.mappilot.core.model.MapPilotEvent
+import com.mappilot.core.model.Pose
+import com.mappilot.perception.core.FrameScheduler
+import com.mappilot.perception.core.InferenceFrame
+import com.mappilot.perception.core.Yuv
+import com.mappilot.perception.depth.DepthAnythingEstimator
+import com.mappilot.perception.detection.YoloDetector
+import com.mappilot.sensors.camera.CameraImage
+import com.mappilot.slam.fusion.GnssVioFusion
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import java.util.concurrent.Executors
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/** Live perception status for the HUD. */
+data class PerceptionState(
+    val active: Boolean = false,
+    val delegate: String = "none",
+    val unavailableReason: String? = null,
+    val framesProcessed: Long = 0,
+    val framesDropped: Long = 0,
+    val lastDetections: Int = 0,
+    val assetCount: Int = 0,
+)
+
+/**
+ * Runs on-device perception at a reduced cadence, fully decoupled from the 30 fps
+ * record path (§10): camera analysis frames are throttled by [FrameScheduler] and
+ * dropped while inference is in flight, so perception never back-pressures
+ * capture or recording.
+ *
+ * Pipeline: YUV→RGB → YOLO detect → (depth + pose + intrinsics) backproject →
+ * dedup track → georeference via the Umeyama transform → emit `/assets`. Assets
+ * are only georeferenced once depth is available AND the VIO→ENU alignment
+ * exists; otherwise detections are still published but no geo is fabricated.
+ */
+@Singleton
+class PerceptionController @Inject constructor(
+    private val detector: YoloDetector,
+    private val depth: DepthAnythingEstimator,
+    private val sensorHub: SensorHub,
+    private val fusion: GnssVioFusion,
+    private val eventBus: EventBus,
+    private val timeSource: TimeSource,
+    private val configProvider: ConfigProvider,
+) {
+    private val perceptionExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "perception") }
+    private val dispatcher = perceptionExecutor.asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val scheduler = FrameScheduler(configProvider.current().perceptionHz)
+    private val tracker = AssetTracker()
+
+    @Volatile private var latestPose: Pose? = null
+    @Volatile private var latestIntrinsics: CameraIntrinsics? = null
+
+    private val _state = MutableStateFlow(PerceptionState())
+    val state: StateFlow<PerceptionState> = _state.asStateFlow()
+
+    fun start() {
+        when (val load = detector.load()) {
+            is MapPilotResult.Success -> _state.value = PerceptionState(active = true, delegate = detector.activeDelegate)
+            is MapPilotResult.Unavailable -> {
+                _state.value = PerceptionState(active = false, unavailableReason = load.reason)
+                Log.w(Streams.PERCEPTION, "Detector unavailable: ${load.reason}")
+                return
+            }
+            else -> {
+                _state.value = PerceptionState(active = false, unavailableReason = "load failed")
+                return
+            }
+        }
+        depth.load() // best-effort; depth-less detections are still published
+
+        subscribeContext()
+        sensorHub.camera.setAnalysisCallback(::onAnalysisFrame)
+        Log.i(Streams.PERCEPTION, "Perception started @ ${configProvider.current().perceptionHz} Hz")
+    }
+
+    private fun subscribeContext() {
+        eventBus.events
+            .onEach { e ->
+                when (e) {
+                    is MapPilotEvent.PoseUpdate -> latestPose = e.pose
+                    is MapPilotEvent.FrameCaptured -> e.frame.intrinsics?.let { latestIntrinsics = it }
+                    else -> Unit
+                }
+            }
+            .launchIn(scope)
+    }
+
+    /** Camera-thread callback: throttle then hand off to the perception thread. */
+    private fun onAnalysisFrame(image: CameraImage) {
+        if (!scheduler.offer(image.timestampNs)) {
+            sensorHub.camera.onAnalysisComplete()
+            return
+        }
+        perceptionExecutor.execute {
+            try {
+                process(image)
+            } catch (t: Throwable) {
+                Log.e(Streams.PERCEPTION, t, "perception frame failed")
+            } finally {
+                scheduler.onComplete()
+                sensorHub.camera.onAnalysisComplete()
+            }
+        }
+    }
+
+    private fun process(image: CameraImage) {
+        val rgb = Yuv.nv21ToRgb(image.nv21, image.width, image.height)
+        val frame = InferenceFrame(image.frameId, image.timestampNs, image.width, image.height, rgb)
+
+        val detections = when (val r = detector.detect(frame)) {
+            is MapPilotResult.Success -> r.value
+            is MapPilotResult.Degraded -> r.value
+            else -> emptyList()
+        }
+        if (detections.isNotEmpty()) {
+            eventBus.emit(MapPilotEvent.DetectionBatch(image.timestampNs, detections))
+        }
+
+        val assets = georeference(detections, frame)
+        if (assets.isNotEmpty()) {
+            eventBus.emit(MapPilotEvent.AssetsExtracted(image.timestampNs, assets))
+        }
+
+        _state.value = _state.value.copy(
+            framesProcessed = scheduler.accepted,
+            framesDropped = scheduler.dropped,
+            lastDetections = detections.size,
+            assetCount = tracker.count,
+        )
+    }
+
+    /** Backproject + dedup + georeference. Skips assets lacking depth or alignment. */
+    private fun georeference(detections: List<Detection>, frame: InferenceFrame): List<Asset> {
+        if (detections.isEmpty()) return emptyList()
+        val pose = latestPose ?: return emptyList()
+        val transform = fusion.currentTransform() ?: return emptyList() // null until VIO→ENU aligned
+        val enuFrame = fusion.originFrame() ?: return emptyList()
+        val intr = scaledIntrinsics(frame.width, frame.height) ?: return emptyList()
+
+        val depthMap = when (val d = depth.estimate(frame)) {
+            is MapPilotResult.Success -> d.value
+            else -> null // no fabricated depth; ARCore depth integration is the on-device source
+        } ?: return emptyList()
+
+        val out = ArrayList<Asset>()
+        for (det in detections) {
+            val u = det.box.centerX.toDouble()
+            val v = det.box.centerY.toDouble()
+            val depthM = depthMap.depthAtNormalized(det.box.centerX / frame.width, det.box.centerY / frame.height)
+            if (!depthM.isFinite()) continue
+            val world = Backprojection.backproject(u, v, depthM.toDouble(), intr, pose.position, pose.orientation)
+                ?: continue
+            val (tracked, _) = tracker.observe(world, det.assetClass, det.confidence, depthM.toDouble(), det.box, det.sourceFrameId)
+            // VIO world → ENU (Umeyama) → geo (WGS84).
+            val geo = enuFrame.toGeo(transform.apply(tracked.world))
+            out.add(
+                Asset(
+                    id = tracked.id,
+                    assetClass = tracked.assetClass,
+                    geo = geo,
+                    box = tracked.lastBox,
+                    confidence = tracked.maxConfidence,
+                    sourceFrameId = tracked.lastFrameId,
+                    depthM = tracked.depthAvgM.toFloat(),
+                    embeddingId = null,
+                ),
+            )
+        }
+        return out
+    }
+
+    private fun scaledIntrinsics(w: Int, h: Int): CameraIntrinsics? {
+        val full = latestIntrinsics ?: return null
+        val sx = w.toDouble() / full.imageWidth
+        val sy = h.toDouble() / full.imageHeight
+        return full.copy(
+            fx = full.fx * sx, fy = full.fy * sy,
+            cx = full.cx * sx, cy = full.cy * sy,
+            imageWidth = w, imageHeight = h,
+        )
+    }
+
+    fun stop() {
+        sensorHub.camera.setAnalysisCallback(null)
+        scope.coroutineContext.cancelChildren()
+        scheduler.reset()
+        _state.value = _state.value.copy(active = false)
+        Log.i(Streams.PERCEPTION, "Perception stopped: ${tracker.count} assets")
+    }
+}

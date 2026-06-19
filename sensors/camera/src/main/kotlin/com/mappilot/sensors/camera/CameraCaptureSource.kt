@@ -14,6 +14,7 @@ import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
+import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
@@ -78,6 +79,11 @@ class CameraCaptureSource @Inject constructor(
 
     @Volatile private var previewSurface: Surface? = null
     @Volatile private var recordingSurface: Surface? = null
+    @Volatile private var analysisCallback: ((CameraImage) -> Unit)? = null
+    @Volatile private var analysisBusy = false
+    private var imageReader: ImageReader? = null
+    private val analysisFrameId = AtomicLong(0)
+    private val analysisSize = Size(640, 480)
     private val frameId = AtomicLong(0)
     private var cameraId: String? = null
     private var characteristics: CameraCharacteristics? = null
@@ -107,6 +113,21 @@ class CameraCaptureSource @Inject constructor(
         session = null
         createSession(camera, h)
     }
+
+    /**
+     * Provide a perception callback. The camera attaches a YUV ImageReader target;
+     * frames are delivered (and dropped while the consumer is busy) so perception
+     * never back-pressures the capture/record path. Set null to detach.
+     */
+    fun setAnalysisCallback(cb: ((CameraImage) -> Unit)?) {
+        analysisCallback = cb
+        val cam = device ?: return
+        val h = handler ?: return
+        h.post { runCatching { reconfigure(cam, h) } }
+    }
+
+    /** Called by the perception consumer when it has finished a delivered frame. */
+    fun onAnalysisComplete() { analysisBusy = false }
 
     @Synchronized
     override fun start() {
@@ -166,7 +187,8 @@ class CameraCaptureSource @Inject constructor(
 
     private fun createSession(camera: CameraDevice, h: Handler) {
         val primary = previewSurface ?: createInternalSurface()
-        val targets = listOfNotNull(primary, recordingSurface)
+        val analysisSurface = if (analysisCallback != null) createAnalysisReader(h) else null
+        val targets = listOfNotNull(primary, recordingSurface, analysisSurface)
         val executor = Executor { command -> h.post(command) }
         val outputs = targets.map { OutputConfiguration(it) }
         // RECORD template when an encoder surface is attached, else PREVIEW.
@@ -191,6 +213,33 @@ class CameraCaptureSource @Inject constructor(
             },
         )
         camera.createCaptureSession(config)
+    }
+
+    private fun createAnalysisReader(h: Handler): Surface {
+        imageReader?.close()
+        val reader = ImageReader.newInstance(
+            analysisSize.width, analysisSize.height, ImageFormat.YUV_420_888, 2,
+        )
+        reader.setOnImageAvailableListener({ r ->
+            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val cb = analysisCallback
+                if (cb == null || analysisBusy) return@setOnImageAvailableListener
+                analysisBusy = true // consumer clears via onAnalysisComplete()
+                val frame = CameraImage(
+                    frameId = analysisFrameId.getAndIncrement(),
+                    timestampNs = image.timestamp,
+                    width = image.width,
+                    height = image.height,
+                    nv21 = image.toNv21(),
+                )
+                cb(frame)
+            } finally {
+                image.close()
+            }
+        }, h)
+        imageReader = reader
+        return reader.surface
     }
 
     private fun createInternalSurface(): Surface {
@@ -259,8 +308,11 @@ class CameraCaptureSource @Inject constructor(
         device = null
         internalSurface?.release()
         surfaceTexture?.release()
+        imageReader?.close()
         internalSurface = null
         surfaceTexture = null
+        imageReader = null
+        analysisBusy = false
         thread?.quitSafely()
         thread = null
         handler = null

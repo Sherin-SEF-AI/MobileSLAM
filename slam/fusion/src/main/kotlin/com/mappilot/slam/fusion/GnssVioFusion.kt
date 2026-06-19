@@ -119,6 +119,9 @@ class GnssVioFusion @Inject constructor(
     /** Current transform's ENU origin, for converting ENU back to geo. */
     fun originFrame(): EnuFrame? = enuFrame
 
+    /** The current VIO→ENU similarity transform, or null until aligned. */
+    fun currentTransform(): SimilarityTransform? = transform
+
     private fun nearestPose(tsNs: Long): Pose? {
         recentPoses[tsNs]?.let { return it }
         var best: Pose? = null
