@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MapPilot</string>
+    <string name="recording_channel_name">Capture session</string>
+    <string name="recording_channel_desc">Active mobile-mapping capture</string>
+    <string name="recording_notification_title">MapPilot capturing</string>
+</resources>
