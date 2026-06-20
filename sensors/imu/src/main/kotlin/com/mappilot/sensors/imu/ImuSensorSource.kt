@@ -64,6 +64,18 @@ class ImuSensorSource @Inject constructor(
     private var listener: Listener? = null
     private val batch = ArrayList<ImuSample>(BATCH_SOFT_LIMIT)
 
+    /**
+     * Whether to fill the lossless ring buffers. Only true while recording (the
+     * MCAP writer drains them). During live preview no consumer drains the rings,
+     * so buffering is off and samples are not counted as dropped — the HUD reads
+     * rates from the SyncEngine, not the rings.
+     */
+    @Volatile private var buffering: Boolean = false
+
+    fun setBuffering(enabled: Boolean) {
+        buffering = enabled
+    }
+
     /** Whether this device supports the SensorDirectChannel fast path (opt-in). */
     fun supportsDirectChannel(): Boolean =
         SensorDirectChannelSource(context, syncEngine, eventBus).capability().supported
@@ -151,7 +163,7 @@ class ImuSensorSource @Inject constructor(
                     if (t > 0f) Math.sqrt(t.toDouble()).toFloat() else 0f
                 }
                 val sample = RotationSample(ts, x, y, z, w, event.accuracy)
-                if (!rotationBuffer.offer(sample)) {
+                if (buffering && !rotationBuffer.offer(sample)) {
                     syncEngine.recordDropped(StreamIds.IMU_ROTATION, 1)
                 }
                 eventBus.emit(MapPilotEvent.RotationUpdate(ts, sample))
@@ -168,7 +180,7 @@ class ImuSensorSource @Inject constructor(
                 z = event.values[2],
                 accuracy = event.accuracy,
             )
-            if (!sampleBuffer.offer(sample)) {
+            if (buffering && !sampleBuffer.offer(sample)) {
                 syncEngine.recordDropped(stream.streamId, 1)
             }
             batch.add(sample)

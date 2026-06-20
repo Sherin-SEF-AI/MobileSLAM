@@ -69,6 +69,8 @@ class RecordingSession(
         if (!sensorHub.camera.isRunning) sensorHub.camera.start()
         if (!sensorHub.imu.isRunning) sensorHub.imu.start()
         if (!sensorHub.gnss.isRunning) sensorHub.gnss.start()
+        // Fill the lossless IMU rings now that the writer thread will drain them.
+        sensorHub.imu.setBuffering(true)
 
         startVideo()
         subscribeBus()
@@ -179,6 +181,7 @@ class RecordingSession(
     /** Stops capture-to-disk and finalizes all artifacts. Returns the result. */
     fun stop(): RecordingResult {
         stopped = true
+        sensorHub.imu.setBuffering(false)
         scope.cancel()
         sensorHub.camera.setRecordingSurface(null)
         encoder?.stop()
