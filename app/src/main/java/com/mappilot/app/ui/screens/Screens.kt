@@ -34,14 +34,6 @@ fun MapExplorerScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
 )
 
 @Composable
-fun AssetBrowserScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Asset Browser",
-    subtitle = "Spatial + semantic search over the road-asset database.",
-    landsInPhase = "Phase 5",
-    modifier = modifier,
-)
-
-@Composable
 fun ExportScreen(tripId: Long, modifier: Modifier = Modifier) = PhaseStubScreen(
     title = "Export $tripId",
     subtitle = "Device-native MCAP/GeoJSON/PLY/PCD/CSV inline; cloud-only formats dispatched as jobs.",

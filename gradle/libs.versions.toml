@@ -31,6 +31,8 @@ truth = "1.4.4"
 mockk = "1.13.13"
 turbine = "1.2.0"
 robolectric = "4.14"
+requerySqlite = "3.45.0"
+sqliteJdbc = "3.47.1.0"
 
 [libraries]
 # AndroidX core
@@ -127,6 +129,9 @@ turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+requery-sqlite-android = { group = "io.requery", name = "sqlite-android", version.ref = "requerySqlite" }
+sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqliteJdbc" }
+androidx-test-core = { group = "androidx.test", name = "core", version = "1.6.1" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

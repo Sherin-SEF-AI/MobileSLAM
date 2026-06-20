@@ -9,11 +9,19 @@ import com.mappilot.core.common.config.ConfigProvider
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
 import com.mappilot.core.common.time.TimeSource
+import com.mappilot.core.database.MapPilotRepository
 import com.mappilot.core.model.MapPilotEvent
+import com.mappilot.core.model.Provenance
 import com.mappilot.core.model.RecordingState
+import com.mappilot.core.model.Trip
+import com.mappilot.core.model.TripStatus
 import com.mappilot.core.timesync.SyncEngine
 import com.mappilot.recording.mcap.McapRecoverer
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +40,7 @@ class RecordingController @Inject constructor(
     private val sensorHub: SensorHub,
     private val slamController: SlamController,
     private val perceptionController: PerceptionController,
+    private val repository: MapPilotRepository,
     private val eventBus: EventBus,
     private val timeSource: TimeSource,
     private val syncEngine: SyncEngine,
@@ -40,6 +49,7 @@ class RecordingController @Inject constructor(
     private val _state = MutableStateFlow(RecordingState.IDLE)
     val state: StateFlow<RecordingState> = _state.asStateFlow()
 
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session: RecordingSession? = null
 
     private val tripsRoot: File
@@ -71,6 +81,12 @@ class RecordingController @Inject constructor(
     fun stop(): RecordingResult? {
         val s = session ?: return null
         emit(RecordingState.STOPPING)
+        // Capture derived results before tearing down the controllers.
+        val assets = perceptionController.currentAssets()
+        val trajectoryLengthM = slamController.trajectory.lengthM()
+        val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f)
+        val gnssScore = if (slamController.fusionState.value.aligned) 1f else 0f
+
         perceptionController.stop()
         slamController.stop()
         val result = try {
@@ -81,7 +97,42 @@ class RecordingController @Inject constructor(
         }
         session = null
         emit(RecordingState.IDLE)
+
+        if (result != null) persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets)
         return result
+    }
+
+    /** Persist the trip header + georeferenced assets so search has real data. */
+    private fun persistTrip(
+        result: RecordingResult,
+        distanceM: Double,
+        slamScore: Float,
+        gnssScore: Float,
+        assets: List<com.mappilot.core.model.Asset>,
+    ) {
+        ioScope.launch {
+            try {
+                val tripId = repository.upsertTrip(
+                    Trip(
+                        id = 0,
+                        startedNs = result.startedNs,
+                        endedNs = result.endedNs,
+                        distanceM = distanceM,
+                        areaM2 = 0.0,
+                        slamScore = slamScore,
+                        gnssScore = gnssScore,
+                        mcapPath = File(result.tripDir, result.segments.first()).absolutePath,
+                        mp4Path = result.mp4Path,
+                        status = TripStatus.RECORDED,
+                        provenance = Provenance.ON_DEVICE,
+                    ),
+                )
+                assets.forEach { repository.saveAsset(tripId, it, embedding = null) }
+                Log.i(Streams.RECORDING, "Persisted trip $tripId: ${assets.size} assets, ${"%.1f".format(distanceM)}m")
+            } catch (e: Exception) {
+                Log.e(Streams.RECORDING, e, "Failed to persist trip")
+            }
+        }
     }
 
     /**

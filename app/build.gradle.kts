@@ -59,6 +59,8 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:model"))
     implementation(project(":core:time-sync"))
+    implementation(project(":core:database"))
+    implementation(project(":search"))
 
     // Sensors
     implementation(project(":sensors:imu"))

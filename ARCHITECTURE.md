@@ -35,7 +35,7 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 |---|---|---|
 | `:core:model` | Domain models (geometry, sensors, SLAM, assets, trip) + `MapPilotEvent` | **built** |
 | `:core:common` | `MapPilotResult`, `TimeSource`, dispatchers, logging, `CaptureConfig`, `EventBus`, DI | **built** |
-| `:core:database` | Room + SQLite(R*Tree) + sqlite-vec | planned: Phase 5 |
+| `:core:database` | Room + R*Tree spatial (platform SQLite + fallback) + exact-cosine vectors | **built** |
 | `:core:time-sync` | `SyncEngine`: timebase normalization, drift/latency/validation | **built** |
 | `:sensors:camera` | Camera2 capture, intrinsics/exposure/ISO, ts-source detection | **built** (ARCore SharedCamera: Phase 3) |
 | `:sensors:imu` | 6 IMU streams ≥100 Hz, ring-buffered, SensorDirectChannel (opt-in) | **built** |
@@ -51,7 +51,7 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:assets:extraction` | `Backprojection` + `AssetTracker` dedup (pure, tested) | **built** |
 | `:geo:trajectory` | `TrajectoryBuilder` + GeoJSON/CSV export | **built** |
 | `:geo:mapping` | sparse map / asset map assembly | planned: Phase 6 |
-| `:search` | spatial + vector + semantic queries | planned: Phase 5 |
+| `:search` | `SearchService`: radius/bbox spatial, class filter, semantic (cosine) | **built** |
 | `:export` | MCAP/GeoJSON/PLY/PCD/CSV + cloud adapters | planned: Phase 7 |
 | `:cloud:client` | resumable upload, job API, provenance | planned: Phase 8 |
 | `:viz:map` / `:viz:render3d` | MapLibre 2D / Filament 3D | planned: Phase 6 |

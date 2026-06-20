@@ -207,6 +207,28 @@ class PerceptionController @Inject constructor(
         )
     }
 
+    /**
+     * The deduplicated, georeferenced assets accumulated this session (for
+     * persistence). Empty until VIO→ENU alignment exists — no fabricated geo.
+     */
+    fun currentAssets(): List<Asset> {
+        val transform = fusion.currentTransform() ?: return emptyList()
+        val enuFrame = fusion.originFrame() ?: return emptyList()
+        return tracker.assets.map { t ->
+            val geo = enuFrame.toGeo(transform.apply(t.world))
+            Asset(
+                id = 0, // assigned by the DB
+                assetClass = t.assetClass,
+                geo = geo,
+                box = t.lastBox,
+                confidence = t.maxConfidence,
+                sourceFrameId = t.lastFrameId,
+                depthM = t.depthAvgM.toFloat(),
+                embeddingId = null,
+            )
+        }
+    }
+
     fun stop() {
         sensorHub.camera.setAnalysisCallback(null)
         scope.coroutineContext.cancelChildren()
