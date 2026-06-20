@@ -92,6 +92,12 @@ dependencies {
     // Export
     implementation(project(":export"))
 
+    // Cloud
+    implementation(project(":cloud:client"))
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

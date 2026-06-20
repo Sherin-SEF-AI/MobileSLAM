@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mappilot.cloud.client.CloudUploadManager
+import com.mappilot.cloud.client.JobType
+import com.mappilot.core.database.MapPilotRepository
 import com.mappilot.export.CloudJobDescriptor
 import com.mappilot.export.ExportFormat
 import com.mappilot.export.ExportService
@@ -29,11 +32,16 @@ class ExportViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle,
     private val exportService: ExportService,
+    private val uploadManager: CloudUploadManager,
+    private val repository: MapPilotRepository,
 ) : ViewModel() {
 
     private val tripId: Long = savedStateHandle.get<Long>("tripId") ?: -1L
     private val _state = MutableStateFlow(ExportUiState(tripId))
     val state: StateFlow<ExportUiState> = _state.asStateFlow()
+
+    /** Configurable backend; defaults to the emulator→host dev server. */
+    var baseUrl: String = "http://10.0.2.2:8000/v1"
 
     fun toggle(format: ExportFormat) {
         val sel = _state.value.selected.toMutableSet()
@@ -46,11 +54,29 @@ class ExportViewModel @Inject constructor(
         viewModelScope.launch {
             val dir = File(context.getExternalFilesDir("exports"), "trip_$tripId")
             val result = exportService.export(tripId, dir, _state.value.selected)
+            // For each dispatched cloud format, upload the MCAP (real artifact) and
+            // create the corresponding processing job. No geometry is fabricated.
+            if (result.cloudJobs.isNotEmpty()) {
+                repository.tripById(tripId)?.let { trip ->
+                    val mcap = File(trip.mcapPath)
+                    result.cloudJobs.forEach { job ->
+                        uploadManager.enqueue(tripId, mcap, jobTypeFor(job), baseUrl)
+                    }
+                }
+            }
             _state.value = _state.value.copy(
                 running = false,
                 deviceFiles = result.deviceFiles,
                 cloudJobs = result.cloudJobs,
             )
         }
+    }
+
+    private fun jobTypeFor(job: CloudJobDescriptor): JobType = when (job.format) {
+        ExportFormat.OBJ, ExportFormat.GLTF -> JobType.MVS_DENSE
+        ExportFormat.OPENDRIVE -> JobType.MAP_GEN_OPENDRIVE
+        ExportFormat.LANELET2 -> JobType.MAP_GEN_LANELET2
+        ExportFormat.MBTILES -> JobType.VECTOR_TILES
+        else -> JobType.SFM_REFINE
     }
 }

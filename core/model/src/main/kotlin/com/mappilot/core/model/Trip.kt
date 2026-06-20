@@ -36,3 +36,15 @@ data class DeviceEvent(
     val type: DeviceEventType,
     val payload: String,
 )
+
+/** A cloud upload/processing job for one artifact of a trip. */
+data class UploadJob(
+    val id: Long,
+    val tripId: Long,
+    val artifact: String,
+    val remoteId: String?,
+    val state: String, // CloudState.name
+    val bytesSent: Long,
+    val totalBytes: Long,
+    val provenance: Provenance,
+)

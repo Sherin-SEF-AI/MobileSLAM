@@ -10,14 +10,6 @@ import androidx.compose.ui.Modifier
  */
 
 @Composable
-fun JobsScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Jobs / Upload",
-    subtitle = "Resumable upload and cloud job states with provenance.",
-    landsInPhase = "Phase 8",
-    modifier = modifier,
-)
-
-@Composable
 fun SettingsScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
     title = "Settings / Calibration",
     subtitle = "Sensor rates, camera calibration entry, model/delegate selection, storage management.",

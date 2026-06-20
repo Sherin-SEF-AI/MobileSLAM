@@ -53,7 +53,7 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:geo:mapping` | sparse map / asset map assembly | planned: Phase 6 |
 | `:search` | `SearchService`: radius/bbox spatial, class filter, semantic (cosine) | **built** |
 | `:export` | PLY/PCD/GeoJSON/CSV writers + cloud-format job dispatch | **built** |
-| `:cloud:client` | resumable upload, job API, provenance | planned: Phase 8 |
+| `:cloud:client` | resumable chunked upload + job API + provenance + WorkManager | **built** |
 | `:viz:map` | MapLibre 2D: trajectory + assets + heatmap (offline style) | **built** |
 | `:viz:render3d` | GLES3 sparse-cloud + keyframe-frustum (orbit/zoom/pan) | **built** |
 | `:analytics` | `QualityAnalyzer` (SLAM/GNSS/trajectory/coverage/reconstruction) | **built** |

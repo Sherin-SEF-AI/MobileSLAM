@@ -89,6 +89,7 @@ interface EventDao {
 interface UploadJobDao {
     @Insert suspend fun insert(job: UploadJobEntity): Long
     @Update suspend fun update(job: UploadJobEntity)
-    @Query("SELECT * FROM upload_jobs WHERE state != 'READY'") fun observePending(): Flow<List<UploadJobEntity>>
+    @Query("SELECT * FROM upload_jobs ORDER BY id DESC") fun observeAll(): Flow<List<UploadJobEntity>>
+    @Query("SELECT * FROM upload_jobs WHERE id = :id") suspend fun byId(id: Long): UploadJobEntity?
     @Query("SELECT * FROM upload_jobs WHERE tripId = :tripId") suspend fun byTrip(tripId: Long): List<UploadJobEntity>
 }

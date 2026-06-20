@@ -65,6 +65,13 @@ fun Trip.toEntity(): TripEntity = TripEntity(
     provenance = provenance.name,
 )
 
+fun com.mappilot.core.database.entity.UploadJobEntity.toUploadDomain(): com.mappilot.core.model.UploadJob =
+    com.mappilot.core.model.UploadJob(
+        id = id, tripId = tripId, artifact = artifact, remoteId = remoteId,
+        state = state, bytesSent = bytesSent, totalBytes = totalBytes,
+        provenance = runCatching { Provenance.valueOf(provenance) }.getOrDefault(Provenance.CLOUD_REFINED),
+    )
+
 fun GnssFixEntity.toDomain(): GnssFix = GnssFix(
     timestampNs = timestampNs,
     latitude = lat, longitude = lon, altitude = alt,

@@ -2,10 +2,13 @@ package com.mappilot.core.database
 
 import com.mappilot.core.database.entity.EmbeddingEntity
 import com.mappilot.core.database.entity.LandmarkEntity
+import com.mappilot.core.database.entity.UploadJobEntity
 import com.mappilot.core.database.vector.VectorMath
 import com.mappilot.core.model.Asset
 import com.mappilot.core.model.Landmark
+import com.mappilot.core.model.Provenance
 import com.mappilot.core.model.Trip
+import com.mappilot.core.model.UploadJob
 import com.mappilot.core.model.Vector3
 import com.mappilot.core.database.entity.TripEntity
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +68,26 @@ class MapPilotRepository @Inject constructor(
             },
         )
     }
+
+    // --- upload jobs ---
+
+    suspend fun queueUpload(tripId: Long, artifact: String, totalBytes: Long): Long =
+        db.uploadJobDao().insert(
+            UploadJobEntity(
+                tripId = tripId, artifact = artifact, remoteId = null,
+                state = "QUEUED", bytesSent = 0, totalBytes = totalBytes, provenance = Provenance.CLOUD_REFINED.name,
+            ),
+        )
+
+    suspend fun updateUpload(id: Long, state: String, bytesSent: Long, remoteId: String?) {
+        val existing = db.uploadJobDao().byId(id) ?: return
+        db.uploadJobDao().update(existing.copy(state = state, bytesSent = bytesSent, remoteId = remoteId ?: existing.remoteId))
+    }
+
+    suspend fun uploadJob(id: Long): UploadJob? = db.uploadJobDao().byId(id)?.toUploadDomain()
+
+    fun observeUploadJobs(): Flow<List<UploadJob>> =
+        db.uploadJobDao().observeAll().map { list -> list.map { it.toUploadDomain() } }
 
     suspend fun landmarksForTrip(tripId: Long): List<Landmark> =
         db.landmarkDao().byTrip(tripId).map { l ->
