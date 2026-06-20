@@ -1,6 +1,7 @@
 package com.mappilot.perception.core
 
 import com.mappilot.core.common.result.MapPilotResult
+import com.mappilot.core.model.BoundingBox
 import com.mappilot.core.model.Detection
 
 /**
@@ -57,5 +58,29 @@ interface Detector {
 interface DepthEstimator {
     fun load(): MapPilotResult<Unit>
     fun estimate(frame: InferenceFrame): MapPilotResult<DepthMap>
+    fun close()
+}
+
+/**
+ * On-device image embedder. Produces a fixed-length, L2-normalized feature vector
+ * for an image crop, enabling visual-similarity (semantic) search over assets.
+ * When no model is bundled, [load] returns [MapPilotResult.Unavailable] and
+ * [embed] returns null — embeddings are never fabricated.
+ */
+interface Embedder {
+    fun load(): MapPilotResult<Unit>
+
+    /** Embedding dimension, or 0 until a model is loaded. */
+    val dim: Int
+
+    /** True once a real model is loaded and ready. */
+    val available: Boolean
+
+    /**
+     * L2-normalized embedding of the [box] crop (in [frame] original-frame pixels),
+     * or null if the embedder is unavailable / the crop is degenerate.
+     */
+    fun embed(frame: InferenceFrame, box: BoundingBox): FloatArray?
+
     fun close()
 }

@@ -110,7 +110,7 @@ class RecordingController @Inject constructor(
         val s = session ?: return null
         emit(RecordingState.STOPPING)
         // Capture derived results before tearing down the controllers.
-        val assets = perceptionController.currentAssets()
+        val (assets, assetEmbeddings) = perceptionController.currentAssetsWithEmbeddings()
         val landmarks = slamController.currentLandmarks()
         val trajectoryGeoJson = slamController.trajectory.toGeoJson()
         val trajectoryLengthM = slamController.trajectory.lengthM()
@@ -135,7 +135,7 @@ class RecordingController @Inject constructor(
         if (result != null) {
             // trajectory.geojson sidecar for the Session Detail map.
             runCatching { File(result.tripDir, "trajectory.geojson").writeText(trajectoryGeoJson) }
-            persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets, landmarks, sessionData)
+            persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets, assetEmbeddings, landmarks, sessionData)
         }
         return result
     }
@@ -199,6 +199,7 @@ class RecordingController @Inject constructor(
         slamScore: Float,
         gnssScore: Float,
         assets: List<com.mappilot.core.model.Asset>,
+        assetEmbeddings: List<FloatArray?>,
         landmarks: List<com.mappilot.core.model.Landmark>,
         sessionData: SessionData,
     ) {
@@ -219,7 +220,7 @@ class RecordingController @Inject constructor(
                         provenance = Provenance.ON_DEVICE,
                     ),
                 )
-                repository.saveAssets(tripId, assets)
+                repository.saveAssets(tripId, assets, assetEmbeddings)
                 if (landmarks.isNotEmpty()) repository.saveLandmarks(tripId, landmarks)
                 repository.saveKeyframes(tripId, sessionData.keyframes)
                 repository.saveGnssEpochSummaries(tripId, sessionData.epochs)

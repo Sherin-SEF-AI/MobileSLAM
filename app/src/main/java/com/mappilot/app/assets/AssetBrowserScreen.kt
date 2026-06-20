@@ -1,5 +1,6 @@
 package com.mappilot.app.assets
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,11 +18,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mappilot.app.ui.theme.MapPilotColors
 import com.mappilot.app.ui.theme.TelemetryTextStyle
+import com.mappilot.core.model.Asset
 import com.mappilot.core.model.AssetClass
 
 /**
@@ -49,10 +52,33 @@ fun AssetBrowserScreen(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            ClassChip("ALL", state.selectedClass == null) { viewModel.filterByClass(null) }
+            ClassChip("ALL", state.selectedClass == null && state.similarToId == null) { viewModel.filterByClass(null) }
             FILTERS.forEach { c ->
                 ClassChip(c.name.removePrefix("TRAFFIC_"), state.selectedClass == c) { viewModel.filterByClass(c) }
             }
+        }
+
+        // Visual-similarity affordance / status.
+        when {
+            state.similarToId != null -> Text(
+                "Showing assets visually similar to #${state.similarToId} · tap ALL to clear",
+                style = TelemetryTextStyle,
+                fontWeight = FontWeight.Bold,
+                color = MapPilotColors.TrackingLock,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            state.embeddingsAvailable -> Text(
+                "Tap an asset to find visually similar ones (on-device embeddings).",
+                style = TelemetryTextStyle,
+                color = MapPilotColors.OnSurfaceMuted,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            else -> Text(
+                "Visual similarity UNAVAILABLE — no embeddings yet (capture with the image embedder).",
+                style = TelemetryTextStyle,
+                color = MapPilotColors.OnSurfaceMuted,
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
 
         if (state.results.isEmpty() && !state.loading) {
@@ -68,8 +94,13 @@ fun AssetBrowserScreen(
             itemsIndexed(state.results) { index, asset ->
                 // Page in more as the user nears the end (100 GB-scale lists).
                 if (index >= state.results.size - 10 && state.hasMore) viewModel.loadMore()
+                val rowModifier = if (state.embeddingsAvailable) {
+                    Modifier.fillMaxWidth().clickable { viewModel.findSimilar(asset) }.padding(vertical = 6.dp)
+                } else {
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    modifier = rowModifier,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(asset.assetClass.name, style = TelemetryTextStyle, color = MapPilotColors.TrackingLock)

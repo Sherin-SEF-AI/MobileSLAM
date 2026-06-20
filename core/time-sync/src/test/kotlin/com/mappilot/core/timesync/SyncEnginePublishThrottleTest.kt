@@ -2,7 +2,8 @@ package com.mappilot.core.timesync
 
 import com.google.common.truth.Truth.assertThat
 import com.mappilot.core.common.bus.SharedFlowEventBus
-import com.mappilot.core.common.config.DefaultConfigProvider
+import com.mappilot.core.common.config.CaptureConfig
+import com.mappilot.core.common.config.ConfigProvider
 import com.mappilot.core.common.time.TimeSource
 import com.mappilot.core.model.TimestampSource
 import org.junit.Test
@@ -20,7 +21,11 @@ class SyncEnginePublishThrottleTest {
         override fun wallClockMillis(): Long = 0
     }
 
-    private fun engine() = SyncEngine(ZeroClock, SharedFlowEventBus(), DefaultConfigProvider())
+    private val config = object : ConfigProvider {
+        override fun current() = CaptureConfig()
+    }
+
+    private fun engine() = SyncEngine(ZeroClock, SharedFlowEventBus(), config)
 
     @Test
     fun `rapid samples within the publish window do not refresh health`() {

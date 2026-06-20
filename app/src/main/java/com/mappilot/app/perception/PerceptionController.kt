@@ -18,6 +18,7 @@ import com.mappilot.perception.core.FrameScheduler
 import com.mappilot.perception.core.InferenceFrame
 import com.mappilot.perception.core.Yuv
 import com.mappilot.perception.depth.DepthAnythingEstimator
+import com.mappilot.perception.detection.ImageEmbedder
 import com.mappilot.perception.detection.YoloDetector
 import com.mappilot.sensors.camera.CameraImage
 import com.mappilot.slam.fusion.GnssVioFusion
@@ -44,6 +45,7 @@ data class PerceptionState(
     val framesDropped: Long = 0,
     val lastDetections: Int = 0,
     val assetCount: Int = 0,
+    val embeddingsAvailable: Boolean = false,
 )
 
 /**
@@ -61,6 +63,7 @@ data class PerceptionState(
 class PerceptionController @Inject constructor(
     private val detector: YoloDetector,
     private val depth: DepthAnythingEstimator,
+    private val embedder: ImageEmbedder,
     private val sensorHub: SensorHub,
     private val fusion: GnssVioFusion,
     private val slamEngine: com.mappilot.slam.core.SlamEngine,
@@ -82,6 +85,10 @@ class PerceptionController @Inject constructor(
     // Reused RGB scratch buffer (perception executor is single-threaded).
     private var rgbBuffer: ByteArray? = null
 
+    // Visual-similarity embeddings keyed by tracker asset id; populated when an
+    // asset is first seen, snapshotted with the assets at stop for persistence.
+    private val assetEmbeddings = java.util.concurrent.ConcurrentHashMap<Long, FloatArray>()
+
     private val _state = MutableStateFlow(PerceptionState())
     val state: StateFlow<PerceptionState> = _state.asStateFlow()
 
@@ -91,10 +98,12 @@ class PerceptionController @Inject constructor(
         val load = perceptionExecutor.submit(java.util.concurrent.Callable {
             val r = detector.load()
             depth.load() // best-effort; depth-less detections are still published
+            embedder.load() // best-effort; assets persist without embeddings if absent
             r
         }).get()
         when (load) {
-            is MapPilotResult.Success -> _state.value = PerceptionState(active = true, delegate = detector.activeDelegate)
+            is MapPilotResult.Success ->
+                _state.value = PerceptionState(active = true, delegate = detector.activeDelegate, embeddingsAvailable = embedder.available)
             is MapPilotResult.Unavailable -> {
                 _state.value = PerceptionState(active = false, unavailableReason = load.reason)
                 Log.w(Streams.PERCEPTION, "Detector unavailable: ${load.reason}")
@@ -196,6 +205,10 @@ class PerceptionController @Inject constructor(
             val world = Backprojection.backproject(u, v, depthM.toDouble(), intr, pose.position, pose.orientation)
                 ?: continue
             val (tracked, _) = tracker.observe(world, det.assetClass, det.confidence, depthM.toDouble(), det.box, det.sourceFrameId)
+            // Visual embedding from this frame's crop, computed once per asset.
+            if (embedder.available && !assetEmbeddings.containsKey(tracked.id)) {
+                embedder.embed(frame, det.box)?.let { assetEmbeddings[tracked.id] = it }
+            }
             // VIO world → ENU (Umeyama) → geo (WGS84).
             val geo = enuFrame.toGeo(transform.apply(tracked.world))
             out.add(
@@ -235,10 +248,18 @@ class PerceptionController @Inject constructor(
      * The deduplicated, georeferenced assets accumulated this session (for
      * persistence). Empty until VIO→ENU alignment exists — no fabricated geo.
      */
-    fun currentAssets(): List<Asset> {
-        val transform = fusion.currentTransform() ?: return emptyList()
-        val enuFrame = fusion.originFrame() ?: return emptyList()
-        return tracker.assets.map { t ->
+    fun currentAssets(): List<Asset> = currentAssetsWithEmbeddings().first
+
+    /**
+     * Snapshot the tracked assets and their visual embeddings together, so the two
+     * lists stay positionally aligned for batch persistence. Embedding entries are
+     * null when the embedder is unavailable or that asset wasn't embedded.
+     */
+    fun currentAssetsWithEmbeddings(): Pair<List<Asset>, List<FloatArray?>> {
+        val transform = fusion.currentTransform() ?: return emptyList<Asset>() to emptyList()
+        val enuFrame = fusion.originFrame() ?: return emptyList<Asset>() to emptyList()
+        val snapshot = tracker.assets // single ordered snapshot
+        val assets = snapshot.map { t ->
             val geo = enuFrame.toGeo(transform.apply(t.world))
             Asset(
                 id = 0, // assigned by the DB
@@ -251,6 +272,8 @@ class PerceptionController @Inject constructor(
                 embeddingId = null,
             )
         }
+        val embeddings = snapshot.map { assetEmbeddings[it.id] }
+        return assets to embeddings
     }
 
     fun stop() {

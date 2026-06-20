@@ -84,5 +84,21 @@ class SearchService @Inject constructor(
         }
     }
 
+    /**
+     * Visual-similarity search: rank assets by embedding cosine similarity to the
+     * asset [assetId] (excluding itself). Empty when the seed asset has no
+     * embedding (e.g. captured without an embedder) — no fabricated matches.
+     */
+    suspend fun similarToAsset(assetId: Long, k: Int = 20): List<AssetMatch> {
+        val embId = assetDao.byId(assetId)?.embeddingId ?: return emptyList()
+        val seed = embeddingDao.byIds(listOf(embId)).firstOrNull() ?: return emptyList()
+        return semanticSearch(VectorMath.decode(seed.vector), k + 1)
+            .filter { it.asset.id != assetId }
+            .take(k)
+    }
+
+    /** Number of stored embeddings — lets the UI know if similarity search is usable. */
+    suspend fun embeddingCount(): Int = embeddingDao.all().size
+
     private data class Box(val minLat: Double, val maxLat: Double, val minLon: Double, val maxLon: Double)
 }
