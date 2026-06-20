@@ -10,6 +10,7 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.mappilot.core.common.bus.EventBus
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
+import com.mappilot.core.model.CameraIntrinsics
 import com.mappilot.core.model.Keyframe
 import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.MapPilotEvent
@@ -58,6 +59,22 @@ class ArcoreSlamEngine @Inject constructor(
     private var thread: Thread? = null
     private var session: Session? = null
     private var landmarkEmitCounter = 0
+    private var depthSupported = false
+
+    // Latest depth map (ARCore Depth API), copied off the GL thread so perception
+    // can sample it. Masked to 13-bit millimetres on read.
+    @Volatile private var depthData: ShortArray? = null
+    @Volatile private var depthW = 0
+    @Volatile private var depthH = 0
+
+    override fun depthAt(uNorm: Float, vNorm: Float): Float {
+        val d = depthData ?: return Float.NaN
+        if (depthW <= 0 || depthH <= 0) return Float.NaN
+        val x = (uNorm * depthW).toInt().coerceIn(0, depthW - 1)
+        val y = (vNorm * depthH).toInt().coerceIn(0, depthH - 1)
+        val mm = d[y * depthW + x].toInt() and 0x1FFF
+        return if (mm > 0) mm / 1000f else Float.NaN
+    }
 
     override fun start(config: SlamConfig) {
         if (isRunning) return
@@ -80,10 +97,11 @@ class ArcoreSlamEngine @Inject constructor(
         try {
             egl.create()
             val s = Session(context).also { session = it }
+            depthSupported = s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
             val arConfig = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
-                if (s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)) depthMode = Config.DepthMode.AUTOMATIC
+                if (depthSupported) depthMode = Config.DepthMode.AUTOMATIC
                 planeFindingMode = Config.PlaneFindingMode.DISABLED // mapping, not AR placement
             }
             s.configure(arConfig)
@@ -134,9 +152,13 @@ class ArcoreSlamEngine @Inject constructor(
             eventBus.emit(MapPilotEvent.KeyframeSelected(ts, kf))
         }
 
+        // Real intrinsics from ARCore (this device's Camera2 reports none).
+        val intrinsics = extractIntrinsics(camera)
+
         var landmarkCount = _state.value.landmarkCount
         if (trackingState == TrackingState.TRACKING && (++landmarkEmitCounter % LANDMARK_EMIT_EVERY == 0)) {
             landmarkCount = emitPointCloud(frame, ts)
+            if (depthSupported) acquireDepth(frame)
         }
 
         _state.value = SlamState(
@@ -148,7 +170,47 @@ class ArcoreSlamEngine @Inject constructor(
             landmarkCount = landmarkCount,
             trajectoryLengthM = graph.trajectoryLengthM,
             quality = qualityOf(trackingState, pose.failureReason),
+            cameraIntrinsics = intrinsics,
+            depthAvailable = depthData != null,
         )
+    }
+
+    private fun extractIntrinsics(camera: com.google.ar.core.Camera): CameraIntrinsics? = try {
+        val ci = camera.imageIntrinsics
+        val fl = ci.focalLength      // [fx, fy]
+        val pp = ci.principalPoint   // [cx, cy]
+        val dim = ci.imageDimensions // [w, h]
+        CameraIntrinsics(
+            fx = fl[0].toDouble(), fy = fl[1].toDouble(),
+            cx = pp[0].toDouble(), cy = pp[1].toDouble(),
+            imageWidth = dim[0], imageHeight = dim[1],
+        )
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun acquireDepth(frame: Frame) {
+        try {
+            frame.acquireDepthImage16Bits().use { img ->
+                val w = img.width; val h = img.height
+                val plane = img.planes[0]
+                val buf = plane.buffer
+                val rowStride = plane.rowStride
+                val out = ShortArray(w * h)
+                for (y in 0 until h) {
+                    var rowOff = y * rowStride
+                    for (x in 0 until w) {
+                        val lo = buf.get(rowOff).toInt() and 0xFF
+                        val hi = buf.get(rowOff + 1).toInt() and 0xFF
+                        out[y * w + x] = ((hi shl 8) or lo).toShort()
+                        rowOff += 2
+                    }
+                }
+                depthData = out; depthW = w; depthH = h
+            }
+        } catch (e: Exception) {
+            // Depth not ready this frame — leave the previous map; never fabricate.
+        }
     }
 
     private fun emitPointCloud(frame: Frame, ts: Long): Int {

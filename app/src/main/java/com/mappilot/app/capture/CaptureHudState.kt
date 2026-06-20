@@ -36,6 +36,8 @@ data class SlamHud(
     val keyframes: Int = 0,
     val landmarks: Int = 0,
     val trajectoryLengthM: Double = 0.0,
+    val hasArcoreIntrinsics: Boolean = false,
+    val depthAvailable: Boolean = false,
     val unavailableReason: String? = null,
     // Georeferencing (Umeyama VIO->ENU)
     val georeferenced: Boolean = false,

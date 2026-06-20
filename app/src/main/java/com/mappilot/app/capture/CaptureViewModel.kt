@@ -111,6 +111,8 @@ class CaptureViewModel @Inject constructor(
                     keyframes = slam.keyframeCount,
                     landmarks = slam.landmarkCount,
                     trajectoryLengthM = slam.trajectoryLengthM,
+                    hasArcoreIntrinsics = slam.cameraIntrinsics != null,
+                    depthAvailable = slam.depthAvailable,
                     unavailableReason = slam.unavailableReason,
                     georeferenced = fusion.aligned,
                     correspondences = fusion.correspondences,

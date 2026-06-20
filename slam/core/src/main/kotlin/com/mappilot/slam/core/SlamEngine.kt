@@ -25,6 +25,9 @@ data class SlamState(
     val trajectoryLengthM: Double = 0.0,
     /** Quality 0..1 derived from tracking state + feature support; -1 if unknown. */
     val quality: Float = -1f,
+    /** Real camera intrinsics from the tracker (ARCore), when the device's Camera2 doesn't report them. */
+    val cameraIntrinsics: com.mappilot.core.model.CameraIntrinsics? = null,
+    val depthAvailable: Boolean = false,
     val unavailableReason: String? = null,
 )
 
@@ -45,4 +48,11 @@ interface SlamEngine {
     fun stop()
 
     val isRunning: Boolean
+
+    /**
+     * Metric depth (metres) at normalized image coords [uNorm],[vNorm] in [0,1],
+     * from the tracker's depth map (ARCore Depth API). Returns NaN when depth is
+     * unavailable — never a fabricated distance. Default: unavailable.
+     */
+    fun depthAt(uNorm: Float, vNorm: Float): Float = Float.NaN
 }

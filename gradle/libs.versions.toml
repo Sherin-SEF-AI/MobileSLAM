@@ -18,12 +18,13 @@ timber = "5.0.1"
 datastore = "1.1.1"
 workManager = "2.10.0"
 cameraX = "1.4.0"
-arcore = "1.47.0"
-maplibre = "11.5.2"
+arcore = "1.48.0"
+maplibre = "11.13.5"
 filament = "1.54.5"
-litert = "1.0.1"
+litert = "1.4.2"
 onnxruntime = "1.20.0"
 accompanistPermissions = "0.36.0"
+graphicsPath = "1.1.0"
 junit = "4.13.2"
 androidxJunit = "1.2.1"
 espresso = "3.6.1"
@@ -109,6 +110,9 @@ onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime
 
 # Permissions
 accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
+
+# 16 KB page-size aligned transitive (pulled by compose ui-graphics)
+androidx-graphics-path = { group = "androidx.graphics", name = "graphics-path", version.ref = "graphicsPath" }
 
 # Logging
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }

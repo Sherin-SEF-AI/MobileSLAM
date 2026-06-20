@@ -63,6 +63,7 @@ class PerceptionController @Inject constructor(
     private val depth: DepthAnythingEstimator,
     private val sensorHub: SensorHub,
     private val fusion: GnssVioFusion,
+    private val slamEngine: com.mappilot.slam.core.SlamEngine,
     private val eventBus: EventBus,
     private val timeSource: TimeSource,
     private val configProvider: ConfigProvider,
@@ -176,16 +177,12 @@ class PerceptionController @Inject constructor(
         val enuFrame = fusion.originFrame() ?: return emptyList()
         val intr = scaledIntrinsics(frame.width, frame.height) ?: return emptyList()
 
-        val depthMap = when (val d = depth.estimate(frame)) {
-            is MapPilotResult.Success -> d.value
-            else -> null // no fabricated depth; ARCore depth integration is the on-device source
-        } ?: return emptyList()
-
         val out = ArrayList<Asset>()
         for (det in detections) {
             val u = det.box.centerX.toDouble()
             val v = det.box.centerY.toDouble()
-            val depthM = depthMap.depthAtNormalized(det.box.centerX / frame.width, det.box.centerY / frame.height)
+            // Metric depth from ARCore at the detection centre (no fabricated depth).
+            val depthM = slamEngine.depthAt(det.box.centerX / frame.width, det.box.centerY / frame.height)
             if (!depthM.isFinite()) continue
             val world = Backprojection.backproject(u, v, depthM.toDouble(), intr, pose.position, pose.orientation)
                 ?: continue
@@ -208,8 +205,14 @@ class PerceptionController @Inject constructor(
         return out
     }
 
+    /**
+     * Intrinsics for the analysis frame: prefer Camera2's calibration; fall back
+     * to ARCore's (some devices, like this one, don't expose Camera2 intrinsics).
+     * Scaled to the analysis-frame resolution.
+     */
     private fun scaledIntrinsics(w: Int, h: Int): CameraIntrinsics? {
-        val full = latestIntrinsics ?: return null
+        val full = latestIntrinsics ?: slamEngine.state.value.cameraIntrinsics ?: return null
+        if (full.imageWidth <= 0 || full.imageHeight <= 0) return null
         val sx = w.toDouble() / full.imageWidth
         val sy = h.toDouble() / full.imageHeight
         return full.copy(

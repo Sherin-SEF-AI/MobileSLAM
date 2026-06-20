@@ -68,21 +68,25 @@ fun CaptureScreen(
             },
         )
 
-        HudOverlay(
-            hud = hud,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopStart)
-                .padding(12.dp),
-        )
-
-        RecordControl(
-            state = recordingState,
-            onToggle = viewModel::toggleRecording,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp),
-        )
+        // HUD takes the available space and scrolls internally; the record control
+        // is laid out BELOW it in a column so the scroll area never overlaps (and
+        // can never intercept) the button.
+        Column(modifier = Modifier.fillMaxSize()) {
+            HudOverlay(
+                hud = hud,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(12.dp),
+            )
+            RecordControl(
+                state = recordingState,
+                onToggle = viewModel::toggleRecording,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = 28.dp, top = 8.dp),
+            )
+        }
     }
 }
 
@@ -166,6 +170,8 @@ private fun HudOverlay(hud: CaptureHudState, modifier: Modifier = Modifier) {
             Telemetry("keyframes", s.keyframes.toString())
             Telemetry("landmarks", s.landmarks.toString())
             Telemetry("traj_len", fmt(s.trajectoryLengthM, "%.1f") + " m")
+            Telemetry("intrinsics", if (s.hasArcoreIntrinsics) "ARCore" else "—", warn = !s.hasArcoreIntrinsics)
+            Telemetry("depth", if (s.depthAvailable) "ARCore" else "—", warn = !s.depthAvailable)
         } else {
             Telemetry("status", s.unavailableReason ?: "UNAVAILABLE", warn = true)
         }

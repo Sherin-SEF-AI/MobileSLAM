@@ -18,6 +18,10 @@ android {
         versionCode = 1
         versionName = "0.1.0-phase0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 64-bit only: 16 KB page size is a 64-bit feature, and modern devices are
+        // arm64. Drops legacy 32-bit ABIs (smaller APK, no misaligned 32-bit libs).
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
     buildTypes {
@@ -51,6 +55,10 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Android 15+ 16 KB page size: keep native libs uncompressed + page-aligned
+        // in the APK (AGP zipaligns with -P 16). The .so ELF segments themselves
+        // come 16 KB-aligned from the bumped vendor releases.
+        jniLibs.useLegacyPackaging = false
     }
 }
 
@@ -122,6 +130,9 @@ dependencies {
 
     // Permissions
     implementation(libs.accompanist.permissions)
+
+    // Force the 16 KB-aligned graphics-path (compose pulls an older one transitively)
+    implementation(libs.androidx.graphics.path)
 
     // Logging
     implementation(libs.timber)
