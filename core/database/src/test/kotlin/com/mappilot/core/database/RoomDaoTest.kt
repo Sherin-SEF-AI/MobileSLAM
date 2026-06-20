@@ -9,6 +9,7 @@ import com.mappilot.core.database.entity.TripEntity
 import com.mappilot.core.model.EnuPoint
 import com.mappilot.core.model.EnuPose
 import com.mappilot.core.model.Keyframe
+import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.Pose
 import com.mappilot.core.model.Quaternion
 import com.mappilot.core.model.TrackingFailureReason
@@ -101,6 +102,38 @@ class RoomDaoTest {
         assertThat(back[0].frameId).isEqualTo(42)
         assertThat(back[0].pose.position).isEqualTo(Vector3(1.0, 2.0, 3.0))
         assertThat(back[0].enuPose?.enu).isEqualTo(EnuPoint(10.0, 20.0, 30.0))
+    }
+
+    @Test
+    fun `saveLandmarks drops non-finite coords instead of crashing on NOT NULL`() = runTest {
+        // Regression: ARCore can emit NaN points; SQLite coerces a bound NaN to
+        // NULL, violating landmarks.x NOT NULL. The finite landmark must persist.
+        val repo = MapPilotRepository(db)
+        val tripId = 9L
+        repo.saveLandmarks(
+            tripId,
+            listOf(
+                Landmark(1, Vector3(1.0, 2.0, 3.0), null, 0.9f),
+                Landmark(2, Vector3(Double.NaN, 0.0, 0.0), null, 0.5f),
+                Landmark(3, Vector3(0.0, Double.POSITIVE_INFINITY, 0.0), null, 0.5f),
+            ),
+        )
+        val rows = db.landmarkDao().byTrip(tripId)
+        assertThat(rows).hasSize(1)
+        assertThat(rows[0].x).isEqualTo(1.0)
+    }
+
+    @Test
+    fun `saveKeyframes drops non-finite pose instead of crashing`() = runTest {
+        val repo = MapPilotRepository(db)
+        val tripId = 11L
+        fun kf(id: Long, px: Double) = Keyframe(
+            id, id,
+            Pose(id, Vector3(px, 0.0, 0.0), Quaternion(0.0, 0.0, 0.0, 1.0), TrackingState.TRACKING, TrackingFailureReason.NONE, 1f),
+            null, null,
+        )
+        repo.saveKeyframes(tripId, listOf(kf(1, 5.0), kf(2, Double.NaN)))
+        assertThat(db.keyframeDao().byTrip(tripId)).hasSize(1)
     }
 
     @Test

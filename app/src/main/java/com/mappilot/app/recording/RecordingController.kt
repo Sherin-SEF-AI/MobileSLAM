@@ -220,11 +220,15 @@ class RecordingController @Inject constructor(
                         provenance = Provenance.ON_DEVICE,
                     ),
                 )
-                repository.saveAssets(tripId, assets, assetEmbeddings)
-                if (landmarks.isNotEmpty()) repository.saveLandmarks(tripId, landmarks)
-                repository.saveKeyframes(tripId, sessionData.keyframes)
-                repository.saveGnssEpochSummaries(tripId, sessionData.epochs)
-                repository.saveEvents(tripId, sessionData.events)
+                // Each save is isolated so one failure can't drop the others (the
+                // trip header is already committed above).
+                suspend fun step(name: String, block: suspend () -> Unit) =
+                    runCatching { block() }.onFailure { Log.e(Streams.RECORDING, it, "persist $name failed") }
+                step("assets") { repository.saveAssets(tripId, assets, assetEmbeddings) }
+                step("landmarks") { if (landmarks.isNotEmpty()) repository.saveLandmarks(tripId, landmarks) }
+                step("keyframes") { repository.saveKeyframes(tripId, sessionData.keyframes) }
+                step("gnss") { repository.saveGnssEpochSummaries(tripId, sessionData.epochs) }
+                step("events") { repository.saveEvents(tripId, sessionData.events) }
                 Log.i(
                     Streams.RECORDING,
                     "Persisted trip $tripId: ${assets.size} assets, ${landmarks.size} landmarks, " +

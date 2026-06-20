@@ -89,8 +89,15 @@ class MapPilotRepository @Inject constructor(
     suspend fun tripById(id: Long): Trip? = db.tripDao().byId(id)?.toDomain()
 
     suspend fun saveLandmarks(tripId: Long, landmarks: List<Landmark>) {
+        // Drop non-finite coords: ARCore can emit NaN points during poor/early
+        // tracking, and SQLite coerces a bound NaN to NULL → NOT NULL violation on
+        // landmarks.x. These are invalid measurements, not real positions.
+        val valid = landmarks.filter {
+            it.position.x.isFinite() && it.position.y.isFinite() && it.position.z.isFinite()
+        }
+        if (valid.isEmpty()) return
         db.landmarkDao().insertAll(
-            landmarks.map { l ->
+            valid.map { l ->
                 LandmarkEntity(
                     tripId = tripId,
                     x = l.position.x, y = l.position.y, z = l.position.z,
@@ -103,9 +110,16 @@ class MapPilotRepository @Inject constructor(
 
     /** Persist selected keyframes (pose-graph anchors) for post-session analysis + 3D viz. */
     suspend fun saveKeyframes(tripId: Long, keyframes: List<Keyframe>) {
-        if (keyframes.isEmpty()) return
+        // Same NaN guard as landmarks: drop keyframes whose pose has non-finite
+        // position/orientation (NaN → NULL → NOT NULL violation on keyframes.px).
+        val valid = keyframes.filter { k ->
+            val p = k.pose.position; val q = k.pose.orientation
+            p.x.isFinite() && p.y.isFinite() && p.z.isFinite() &&
+                q.x.isFinite() && q.y.isFinite() && q.z.isFinite() && q.w.isFinite()
+        }
+        if (valid.isEmpty()) return
         db.keyframeDao().insertAll(
-            keyframes.map { k ->
+            valid.map { k ->
                 KeyframeEntity(
                     tripId = tripId,
                     frameId = k.frameId,

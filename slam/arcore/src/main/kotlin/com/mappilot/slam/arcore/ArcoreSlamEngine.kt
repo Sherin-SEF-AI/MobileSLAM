@@ -222,10 +222,14 @@ class ArcoreSlamEngine @Inject constructor(
                 val landmarks = ArrayList<Landmark>(n)
                 for (i in 0 until n) {
                     val base = i * 4
+                    val px = buf.get(base); val py = buf.get(base + 1); val pz = buf.get(base + 2)
+                    // Skip non-finite points (ARCore can emit NaN during early tracking);
+                    // they're invalid measurements and would corrupt MCAP + DB persistence.
+                    if (!px.isFinite() || !py.isFinite() || !pz.isFinite()) continue
                     landmarks.add(
                         Landmark(
                             id = if (ids != null && i < ids.remaining()) ids.get(i).toLong() else i.toLong(),
-                            position = Vector3(buf.get(base).toDouble(), buf.get(base + 1).toDouble(), buf.get(base + 2).toDouble()),
+                            position = Vector3(px.toDouble(), py.toDouble(), pz.toDouble()),
                             geo = null,
                             confidence = buf.get(base + 3),
                         ),
