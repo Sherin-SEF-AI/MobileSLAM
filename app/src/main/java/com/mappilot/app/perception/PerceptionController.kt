@@ -76,6 +76,7 @@ class PerceptionController @Inject constructor(
 
     @Volatile private var latestPose: Pose? = null
     @Volatile private var latestIntrinsics: CameraIntrinsics? = null
+    @Volatile private var thermallyPaused: Boolean = false
 
     private val _state = MutableStateFlow(PerceptionState())
     val state: StateFlow<PerceptionState> = _state.asStateFlow()
@@ -112,8 +113,19 @@ class PerceptionController @Inject constructor(
             .launchIn(scope)
     }
 
+    /**
+     * Apply a thermal degradation plan: cap perception cadence or pause it.
+     * Recording and sync are never affected (they aren't reachable from here).
+     */
+    fun applyDegradation(plan: com.mappilot.core.common.hardening.DegradationPlan) {
+        thermallyPaused = !plan.perceptionEnabled
+        if (plan.perceptionEnabled) scheduler.setTargetHz(plan.perceptionHzCap)
+        Log.i(Streams.PERCEPTION, "Degradation: ${plan.reason} (paused=$thermallyPaused, hzCap=${plan.perceptionHzCap})")
+    }
+
     /** Camera-thread callback: throttle then hand off to the perception thread. */
     private fun onAnalysisFrame(image: CameraImage) {
+        if (thermallyPaused) { sensorHub.camera.onAnalysisComplete(); return }
         if (!scheduler.offer(image.timestampNs)) {
             sensorHub.camera.onAnalysisComplete()
             return

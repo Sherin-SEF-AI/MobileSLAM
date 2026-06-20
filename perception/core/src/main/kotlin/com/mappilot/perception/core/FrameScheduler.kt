@@ -7,7 +7,12 @@ package com.mappilot.perception.core
  * in — so the drop policy is unit-tested.
  */
 class FrameScheduler(targetHz: Int) {
-    private val minIntervalNs: Long = if (targetHz > 0) 1_000_000_000L / targetHz else 0L
+    @Volatile private var minIntervalNs: Long = if (targetHz > 0) 1_000_000_000L / targetHz else 0L
+
+    /** Adjust cadence at runtime (thermal degradation). */
+    fun setTargetHz(hz: Int) {
+        minIntervalNs = if (hz > 0) 1_000_000_000L / hz else Long.MAX_VALUE
+    }
 
     private var lastAcceptedNs: Long = Long.MIN_VALUE
     private var inFlight: Boolean = false

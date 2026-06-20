@@ -2,9 +2,16 @@ package com.mappilot.app.recording
 
 import android.content.Context
 import com.mappilot.app.capture.SensorHub
+import com.mappilot.app.hardening.BatteryMonitor
+import com.mappilot.app.hardening.DegradationController
+import com.mappilot.app.hardening.StorageManager
+import com.mappilot.app.hardening.ThermalManager
 import com.mappilot.app.perception.PerceptionController
 import com.mappilot.app.slam.SlamController
 import com.mappilot.core.common.bus.EventBus
+import com.mappilot.core.common.hardening.StorageAction
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import com.mappilot.core.common.config.ConfigProvider
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
@@ -41,6 +48,10 @@ class RecordingController @Inject constructor(
     private val slamController: SlamController,
     private val perceptionController: PerceptionController,
     private val repository: MapPilotRepository,
+    private val thermalManager: ThermalManager,
+    private val storageManager: StorageManager,
+    private val batteryMonitor: BatteryMonitor,
+    private val degradationController: DegradationController,
     private val eventBus: EventBus,
     private val timeSource: TimeSource,
     private val syncEngine: SyncEngine,
@@ -70,6 +81,11 @@ class RecordingController @Inject constructor(
             slamController.start()
             // On-device perception runs at reduced cadence, decoupled from record.
             perceptionController.start()
+            // Hardening: thermal/storage degradation + battery instrumentation.
+            thermalManager.start()
+            storageManager.start()
+            batteryMonitor.start()
+            observeStoragePressure()
             emit(RecordingState.RECORDING)
         } catch (e: Exception) {
             Log.e(Streams.RECORDING, e, "Failed to start recording")
@@ -89,6 +105,9 @@ class RecordingController @Inject constructor(
         val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f)
         val gnssScore = if (slamController.fusionState.value.aligned) 1f else 0f
 
+        thermalManager.stop()
+        storageManager.stop()
+        batteryMonitor.stop()
         perceptionController.stop()
         slamController.stop()
         val result = try {
@@ -106,6 +125,20 @@ class RecordingController @Inject constructor(
             persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets, landmarks)
         }
         return result
+    }
+
+    /**
+     * Stop recording only when the disk is critically full — continuing would
+     * corrupt the active MCAP. This is the one sanctioned reason to end a session
+     * early; thermal/perception pressure never stops recording.
+     */
+    private fun observeStoragePressure() {
+        degradationController.status
+            .onEach { if (it.storageAction == StorageAction.STOP_RECORDING && session != null) {
+                Log.w(Streams.RECORDING, "Storage critical — stopping recording to protect the file")
+                stop()
+            } }
+            .launchIn(ioScope)
     }
 
     /** Persist the trip header + georeferenced assets + landmarks so search/viz have real data. */

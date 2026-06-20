@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
@@ -65,7 +65,9 @@ fun AssetBrowserScreen(
         }
 
         LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
-            items(state.results) { asset ->
+            itemsIndexed(state.results) { index, asset ->
+                // Page in more as the user nears the end (100 GB-scale lists).
+                if (index >= state.results.size - 10 && state.hasMore) viewModel.loadMore()
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,

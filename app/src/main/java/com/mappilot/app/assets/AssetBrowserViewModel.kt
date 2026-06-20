@@ -2,6 +2,7 @@ package com.mappilot.app.assets
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mappilot.core.database.MapPilotRepository
 import com.mappilot.core.model.Asset
 import com.mappilot.core.model.AssetClass
 import com.mappilot.search.SearchService
@@ -17,27 +18,45 @@ data class AssetBrowserState(
     val selectedClass: AssetClass? = null,
     val results: List<Asset> = emptyList(),
     val totalAssets: Int = 0,
+    val hasMore: Boolean = false,
 )
 
-/** Backs the Asset Browser: real spatial/attribute queries over the asset DB. */
+/** Backs the Asset Browser: real spatial/attribute queries + paged scans over the asset DB. */
 @HiltViewModel
 class AssetBrowserViewModel @Inject constructor(
     private val search: SearchService,
+    private val repository: MapPilotRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AssetBrowserState())
     val state: StateFlow<AssetBrowserState> = _state.asStateFlow()
+    private var pageOffset = 0
 
-    /** Filter by class (null = all road-asset classes shown via union of queries). */
+    /** Filter by class (null = paged scan over all assets, 100 GB-safe). */
     fun filterByClass(assetClass: AssetClass?) {
-        _state.value = _state.value.copy(loading = true, selectedClass = assetClass)
+        pageOffset = 0
+        _state.value = AssetBrowserState(loading = true, selectedClass = assetClass)
         viewModelScope.launch {
-            val results = if (assetClass != null) {
-                search.assetsByClass(assetClass)
+            val total = repository.assetCountTotal()
+            if (assetClass != null) {
+                val results = search.assetsByClass(assetClass)
+                _state.value = AssetBrowserState(false, assetClass, results, results.size, hasMore = false)
             } else {
-                ROAD_CLASSES.flatMap { search.assetsByClass(it) }
+                val page = repository.assetsPage(0, PAGE_SIZE)
+                pageOffset = page.size
+                _state.value = AssetBrowserState(false, null, page, total, hasMore = pageOffset < total)
             }
-            _state.value = _state.value.copy(loading = false, results = results, totalAssets = results.size)
+        }
+    }
+
+    /** Load the next page (only for the unfiltered scan). */
+    fun loadMore() {
+        if (_state.value.selectedClass != null || !_state.value.hasMore) return
+        viewModelScope.launch {
+            val page = repository.assetsPage(pageOffset, PAGE_SIZE)
+            pageOffset += page.size
+            val merged = _state.value.results + page
+            _state.value = _state.value.copy(results = merged, hasMore = pageOffset < _state.value.totalAssets)
         }
     }
 
@@ -51,9 +70,6 @@ class AssetBrowserViewModel @Inject constructor(
     }
 
     private companion object {
-        val ROAD_CLASSES = listOf(
-            AssetClass.TRAFFIC_LIGHT, AssetClass.TRAFFIC_SIGN, AssetClass.POLE,
-            AssetClass.POTHOLE, AssetClass.SPEED_BREAKER, AssetClass.CROSSWALK,
-        )
+        const val PAGE_SIZE = 200
     }
 }

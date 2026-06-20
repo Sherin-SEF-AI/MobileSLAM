@@ -52,6 +52,12 @@ class MapPilotRepository @Inject constructor(
 
     suspend fun allAssets(): List<Asset> = db.assetDao().all().map { it.toDomain() }
 
+    /** Paged asset access for large (100 GB+) datasets — never loads everything at once. */
+    suspend fun assetsPage(offset: Int, limit: Int): List<Asset> =
+        db.assetDao().page(limit, offset).map { it.toDomain() }
+
+    suspend fun assetCountTotal(): Int = db.assetDao().count()
+
     suspend fun assetCount(): Int = db.assetDao().count()
 
     suspend fun tripById(id: Long): Trip? = db.tripDao().byId(id)?.toDomain()

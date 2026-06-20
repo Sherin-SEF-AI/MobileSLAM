@@ -22,7 +22,7 @@ import com.mappilot.app.sessions.SessionDetailScreen
 import com.mappilot.app.sessions.SessionsScreen
 import com.mappilot.app.export.ExportScreen
 import com.mappilot.app.jobs.JobsScreen
-import com.mappilot.app.ui.screens.SettingsScreen
+import com.mappilot.app.settings.SettingsScreen
 
 @Composable
 fun MapPilotNavHost(modifier: Modifier = Modifier) {
