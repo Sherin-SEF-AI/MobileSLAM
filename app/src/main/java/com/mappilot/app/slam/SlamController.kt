@@ -4,6 +4,7 @@ import com.mappilot.core.common.bus.EventBus
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
 import com.mappilot.core.model.GeoPoint
+import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.MapPilotEvent
 import com.mappilot.slam.core.SlamConfig
 import com.mappilot.slam.core.SlamEngine
@@ -37,13 +38,20 @@ class SlamController @Inject constructor(
 
     @Volatile var trajectory = TrajectoryBuilder(); private set
 
+    /** Most recent georeferenced landmark cloud (capped), for 3D + persistence. */
+    private val landmarks = LinkedHashMap<Long, Landmark>()
+
     val slamState get() = slamEngine.state
     val fusionState get() = fusion.state
+
+    @Synchronized
+    fun currentLandmarks(): List<Landmark> = landmarks.values.toList()
 
     fun start(config: SlamConfig = SlamConfig()) {
         if (slamEngine.isRunning) return
         fusion.reset()
         trajectory = TrajectoryBuilder()
+        synchronized(this) { landmarks.clear() }
         subscribe()
         slamEngine.start(config)
         Log.i(Streams.SLAM, "SlamController started")
@@ -61,6 +69,7 @@ class SlamController @Inject constructor(
                             fix.hAccuracyM,
                         )
                     }
+                    is MapPilotEvent.LandmarksUpdated -> accumulateLandmarks(event.landmarks)
                     is MapPilotEvent.EnuPoseUpdate -> {
                         val geo = fusion.originFrame()?.toGeo(event.pose.enu) ?: return@onEach
                         trajectory.add(
@@ -79,6 +88,20 @@ class SlamController @Inject constructor(
             .launchIn(scope)
     }
 
+    @Synchronized
+    private fun accumulateLandmarks(updates: List<Landmark>) {
+        val transform = fusion.currentTransform()
+        val enuFrame = fusion.originFrame()
+        for (l in updates) {
+            val geo = if (transform != null && enuFrame != null) enuFrame.toGeo(transform.apply(l.position)) else null
+            landmarks[l.id] = l.copy(geo = geo)
+            if (landmarks.size > MAX_LANDMARKS) {
+                val oldest = landmarks.keys.first()
+                landmarks.remove(oldest)
+            }
+        }
+    }
+
     fun stop() {
         slamEngine.stop()
         scope.coroutineContext.cancelChildren()
@@ -86,4 +109,8 @@ class SlamController @Inject constructor(
     }
 
     fun currentState(): Pair<SlamState, FusionState> = slamState.value to fusionState.value
+
+    private companion object {
+        const val MAX_LANDMARKS = 50_000
+    }
 }

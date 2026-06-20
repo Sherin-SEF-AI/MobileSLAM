@@ -10,4 +10,5 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:model"))
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui)
 }

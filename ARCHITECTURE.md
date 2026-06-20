@@ -54,8 +54,9 @@ _(Phase 0: feature modules below are wired and compiling but empty.)_
 | `:search` | `SearchService`: radius/bbox spatial, class filter, semantic (cosine) | **built** |
 | `:export` | MCAP/GeoJSON/PLY/PCD/CSV + cloud adapters | planned: Phase 7 |
 | `:cloud:client` | resumable upload, job API, provenance | planned: Phase 8 |
-| `:viz:map` / `:viz:render3d` | MapLibre 2D / Filament 3D | planned: Phase 6 |
-| `:analytics` | quality scoring | planned: Phase 6 |
+| `:viz:map` | MapLibre 2D: trajectory + assets + heatmap (offline style) | **built** |
+| `:viz:render3d` | GLES3 sparse-cloud + keyframe-frustum (orbit/zoom/pan) | **built** |
+| `:analytics` | `QualityAnalyzer` (SLAM/GNSS/trajectory/coverage/reconstruction) | **built** |
 
 ## Layering
 

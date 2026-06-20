@@ -83,6 +83,8 @@ class RecordingController @Inject constructor(
         emit(RecordingState.STOPPING)
         // Capture derived results before tearing down the controllers.
         val assets = perceptionController.currentAssets()
+        val landmarks = slamController.currentLandmarks()
+        val trajectoryGeoJson = slamController.trajectory.toGeoJson()
         val trajectoryLengthM = slamController.trajectory.lengthM()
         val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f)
         val gnssScore = if (slamController.fusionState.value.aligned) 1f else 0f
@@ -98,17 +100,22 @@ class RecordingController @Inject constructor(
         session = null
         emit(RecordingState.IDLE)
 
-        if (result != null) persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets)
+        if (result != null) {
+            // trajectory.geojson sidecar for the Session Detail map.
+            runCatching { File(result.tripDir, "trajectory.geojson").writeText(trajectoryGeoJson) }
+            persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets, landmarks)
+        }
         return result
     }
 
-    /** Persist the trip header + georeferenced assets so search has real data. */
+    /** Persist the trip header + georeferenced assets + landmarks so search/viz have real data. */
     private fun persistTrip(
         result: RecordingResult,
         distanceM: Double,
         slamScore: Float,
         gnssScore: Float,
         assets: List<com.mappilot.core.model.Asset>,
+        landmarks: List<com.mappilot.core.model.Landmark>,
     ) {
         ioScope.launch {
             try {
@@ -128,7 +135,11 @@ class RecordingController @Inject constructor(
                     ),
                 )
                 assets.forEach { repository.saveAsset(tripId, it, embedding = null) }
-                Log.i(Streams.RECORDING, "Persisted trip $tripId: ${assets.size} assets, ${"%.1f".format(distanceM)}m")
+                if (landmarks.isNotEmpty()) repository.saveLandmarks(tripId, landmarks)
+                Log.i(
+                    Streams.RECORDING,
+                    "Persisted trip $tripId: ${assets.size} assets, ${landmarks.size} landmarks, ${"%.1f".format(distanceM)}m",
+                )
             } catch (e: Exception) {
                 Log.e(Streams.RECORDING, e, "Failed to persist trip")
             }

@@ -10,30 +10,6 @@ import androidx.compose.ui.Modifier
  */
 
 @Composable
-fun SessionsScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Sessions",
-    subtitle = "Recorded trips with distance, duration, quality chips and upload/processing state.",
-    landsInPhase = "Phase 2",
-    modifier = modifier,
-)
-
-@Composable
-fun SessionDetailScreen(tripId: Long, modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Session $tripId",
-    subtitle = "Tabs: Map, 3D point cloud, Assets, Quality, Export.",
-    landsInPhase = "Phase 6",
-    modifier = modifier,
-)
-
-@Composable
-fun MapExplorerScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Map Explorer",
-    subtitle = "Multi-session MapLibre map with asset and heatmap layer toggles.",
-    landsInPhase = "Phase 6",
-    modifier = modifier,
-)
-
-@Composable
 fun ExportScreen(tripId: Long, modifier: Modifier = Modifier) = PhaseStubScreen(
     title = "Export $tripId",
     subtitle = "Device-native MCAP/GeoJSON/PLY/PCD/CSV inline; cloud-only formats dispatched as jobs.",

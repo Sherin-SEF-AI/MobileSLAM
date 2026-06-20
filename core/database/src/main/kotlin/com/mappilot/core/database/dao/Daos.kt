@@ -35,6 +35,7 @@ interface AssetDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(assets: List<AssetEntity>): List<Long>
     @Query("SELECT * FROM assets WHERE tripId = :tripId") suspend fun byTrip(tripId: Long): List<AssetEntity>
     @Query("SELECT * FROM assets WHERE assetClass = :assetClass") suspend fun byClass(assetClass: String): List<AssetEntity>
+    @Query("SELECT * FROM assets") suspend fun all(): List<AssetEntity>
     @Query("SELECT COUNT(*) FROM assets") suspend fun count(): Int
     @Query("SELECT * FROM assets WHERE id = :id") suspend fun byId(id: Long): AssetEntity?
     @Query("SELECT * FROM assets WHERE embeddingId IN (:ids)") suspend fun byEmbeddingIds(ids: List<Long>): List<AssetEntity>

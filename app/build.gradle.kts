@@ -84,6 +84,11 @@ dependencies {
     implementation(project(":perception:depth"))
     implementation(project(":assets:extraction"))
 
+    // Viz + analytics
+    implementation(project(":viz:map"))
+    implementation(project(":viz:render3d"))
+    implementation(project(":analytics"))
+
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

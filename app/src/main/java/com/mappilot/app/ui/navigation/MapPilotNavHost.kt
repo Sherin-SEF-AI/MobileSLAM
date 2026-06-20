@@ -17,11 +17,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mappilot.app.assets.AssetBrowserScreen
 import com.mappilot.app.capture.CaptureScreen
+import com.mappilot.app.sessions.MapExplorerScreen
+import com.mappilot.app.sessions.SessionDetailScreen
+import com.mappilot.app.sessions.SessionsScreen
 import com.mappilot.app.ui.screens.ExportScreen
 import com.mappilot.app.ui.screens.JobsScreen
-import com.mappilot.app.ui.screens.MapExplorerScreen
-import com.mappilot.app.ui.screens.SessionDetailScreen
-import com.mappilot.app.ui.screens.SessionsScreen
 import com.mappilot.app.ui.screens.SettingsScreen
 
 @Composable
@@ -59,13 +59,16 @@ fun MapPilotNavHost(modifier: Modifier = Modifier) {
         ) {
             composable(MapPilotDestination.Capture.route) { CaptureScreen() }
             composable(MapPilotDestination.Sessions.route) {
-                SessionsScreen()
+                SessionsScreen(onOpenTrip = { id -> navController.navigate(MapPilotDestination.sessionDetailRoute(id)) })
             }
             composable(
                 route = MapPilotDestination.SessionDetail.route,
                 arguments = listOf(navArgument("tripId") { type = NavType.LongType }),
             ) { entry ->
-                SessionDetailScreen(tripId = entry.arguments?.getLong("tripId") ?: -1L)
+                SessionDetailScreen(
+                    tripId = entry.arguments?.getLong("tripId") ?: -1L,
+                    onExport = { id -> navController.navigate(MapPilotDestination.exportRoute(id)) },
+                )
             }
             composable(MapPilotDestination.MapExplorer.route) { MapExplorerScreen() }
             composable(MapPilotDestination.AssetBrowser.route) { AssetBrowserScreen() }
