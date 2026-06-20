@@ -10,14 +10,6 @@ import androidx.compose.ui.Modifier
  */
 
 @Composable
-fun ExportScreen(tripId: Long, modifier: Modifier = Modifier) = PhaseStubScreen(
-    title = "Export $tripId",
-    subtitle = "Device-native MCAP/GeoJSON/PLY/PCD/CSV inline; cloud-only formats dispatched as jobs.",
-    landsInPhase = "Phase 7",
-    modifier = modifier,
-)
-
-@Composable
 fun JobsScreen(modifier: Modifier = Modifier) = PhaseStubScreen(
     title = "Jobs / Upload",
     subtitle = "Resumable upload and cloud job states with provenance.",

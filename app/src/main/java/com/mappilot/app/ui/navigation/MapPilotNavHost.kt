@@ -20,7 +20,7 @@ import com.mappilot.app.capture.CaptureScreen
 import com.mappilot.app.sessions.MapExplorerScreen
 import com.mappilot.app.sessions.SessionDetailScreen
 import com.mappilot.app.sessions.SessionsScreen
-import com.mappilot.app.ui.screens.ExportScreen
+import com.mappilot.app.export.ExportScreen
 import com.mappilot.app.ui.screens.JobsScreen
 import com.mappilot.app.ui.screens.SettingsScreen
 

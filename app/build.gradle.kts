@@ -89,6 +89,9 @@ dependencies {
     implementation(project(":viz:render3d"))
     implementation(project(":analytics"))
 
+    // Export
+    implementation(project(":export"))
+
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
