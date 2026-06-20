@@ -11,4 +11,5 @@ dependencies {
     api(project(":core:model"))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.datastore.preferences)
 }

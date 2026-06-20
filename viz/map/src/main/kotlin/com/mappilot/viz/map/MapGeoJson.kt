@@ -41,6 +41,28 @@ object MapGeoJson {
         return sb.toString()
     }
 
+    /** One LineString feature per trip — for the multi-session Map Explorer. */
+    fun trajectoriesFeatureCollection(trajectories: List<List<GeoPoint>>): String {
+        val sb = StringBuilder(32 + trajectories.sumOf { it.size } * 24)
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
+        var first = true
+        for (line in trajectories) {
+            if (line.size < 2) continue
+            if (!first) sb.append(',')
+            first = false
+            sb.append("{\"type\":\"Feature\",\"properties\":{\"kind\":\"trajectory\"},")
+                .append("\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+            for (i in line.indices) {
+                val p = line[i]
+                if (i > 0) sb.append(',')
+                sb.append('[').append(p.longitude).append(',').append(p.latitude).append(']')
+            }
+            sb.append("]}}")
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
+
     /** A minimal MapLibre style with a matte dark background and no external tiles. */
     val DARK_STYLE: String = """
         {"version":8,"name":"mappilot-dark","sources":{},"layers":[

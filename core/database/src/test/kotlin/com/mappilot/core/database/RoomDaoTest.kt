@@ -4,7 +4,16 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.mappilot.core.database.entity.AssetEntity
+import com.mappilot.core.database.entity.KeyframeEntity
 import com.mappilot.core.database.entity.TripEntity
+import com.mappilot.core.model.EnuPoint
+import com.mappilot.core.model.EnuPose
+import com.mappilot.core.model.Keyframe
+import com.mappilot.core.model.Pose
+import com.mappilot.core.model.Quaternion
+import com.mappilot.core.model.TrackingFailureReason
+import com.mappilot.core.model.TrackingState
+import com.mappilot.core.model.Vector3
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -73,5 +82,58 @@ class RoomDaoTest {
             .filter { Haversine.distanceM(12.9716, 77.5946, it.geo.latitude, it.geo.longitude) <= 500.0 }
         assertThat(within).hasSize(2)
         assertThat(db.assetDao().byClass("TRAFFIC_LIGHT")).hasSize(1)
+    }
+
+    @Test
+    fun `keyframes persist via repository and map back to domain`() = runTest {
+        val repo = MapPilotRepository(db)
+        val tripId = 7L
+        val kf = Keyframe(
+            frameId = 42,
+            timestampNs = 1_000,
+            pose = Pose(1_000, Vector3(1.0, 2.0, 3.0), Quaternion(0.0, 0.0, 0.0, 1.0), TrackingState.TRACKING, TrackingFailureReason.NONE, 1f),
+            enuPose = EnuPose(1_000, EnuPoint(10.0, 20.0, 30.0), Quaternion(0.0, 0.0, 0.0, 1.0), 0),
+            intrinsics = null,
+        )
+        repo.saveKeyframes(tripId, listOf(kf))
+        val back = repo.keyframesForTrip(tripId)
+        assertThat(back).hasSize(1)
+        assertThat(back[0].frameId).isEqualTo(42)
+        assertThat(back[0].pose.position).isEqualTo(Vector3(1.0, 2.0, 3.0))
+        assertThat(back[0].enuPose?.enu).isEqualTo(EnuPoint(10.0, 20.0, 30.0))
+    }
+
+    @Test
+    fun `deleteTrip removes the trip and all its child rows`() = runTest {
+        val repo = MapPilotRepository(db)
+        val tripId = db.tripDao().insert(
+            TripEntity(
+                startedNs = 0, endedNs = 1, distanceM = 1.0, areaM2 = 0.0,
+                slamScore = 1f, gnssScore = 1f, mcapPath = "/t/trip.mcap",
+                mp4Path = null, status = "RECORDED", provenance = "ON_DEVICE",
+            ),
+        )
+        db.assetDao().insert(
+            AssetEntity(
+                tripId = tripId, assetClass = "POTHOLE", lat = 1.0, lon = 2.0, alt = 0.0,
+                bboxLeft = 0f, bboxTop = 0f, bboxRight = 1f, bboxBottom = 1f,
+                confidence = 0.9f, sourceFrameId = 0, depthM = 5f, embeddingId = null,
+            ),
+        )
+        db.keyframeDao().insertAll(
+            listOf(
+                KeyframeEntity(
+                    tripId = tripId, frameId = 1, timestampNs = 1,
+                    px = 0.0, py = 0.0, pz = 0.0, qx = 0.0, qy = 0.0, qz = 0.0, qw = 1.0,
+                    east = null, north = null, up = null, fx = null, fy = null, cx = null, cy = null,
+                ),
+            ),
+        )
+
+        repo.deleteTrip(tripId)
+
+        assertThat(db.tripDao().byId(tripId)).isNull()
+        assertThat(db.assetDao().byTrip(tripId)).isEmpty()
+        assertThat(db.keyframeDao().byTrip(tripId)).isEmpty()
     }
 }

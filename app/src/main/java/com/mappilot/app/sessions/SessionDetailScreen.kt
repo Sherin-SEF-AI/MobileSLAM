@@ -55,8 +55,8 @@ fun SessionDetailScreen(
             }
         }
         when (tab) {
-            0 -> MapLibreMapView(state.trajectory, state.assets, modifier = Modifier.fillMaxSize())
-            1 -> PointCloudView(state.landmarks, keyframes = emptyList(), modifier = Modifier.fillMaxSize())
+            0 -> MapLibreMapView(listOf(state.trajectory), state.assets, modifier = Modifier.fillMaxSize())
+            1 -> PointCloudView(state.landmarks, keyframes = state.keyframes, modifier = Modifier.fillMaxSize())
             2 -> AssetsTab(state)
             3 -> QualityTab(state)
             4 -> ExportTab(tripId, onExport)

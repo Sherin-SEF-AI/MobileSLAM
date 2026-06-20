@@ -27,7 +27,9 @@ import com.mappilot.recording.mcap.McapRecoverer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +65,15 @@ class RecordingController @Inject constructor(
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session: RecordingSession? = null
 
+    // Session-scoped accumulation of DB-bound derived data that only the bus
+    // carries (keyframes, GNSS epoch summaries, device events). Appended on the
+    // collection coroutine, snapshotted at stop; guarded by [collectLock].
+    private val collectLock = Any()
+    private val collectedKeyframes = ArrayList<com.mappilot.core.model.Keyframe>()
+    private val collectedEpochs = ArrayList<com.mappilot.core.model.GnssEpoch>()
+    private val collectedEvents = ArrayList<com.mappilot.core.model.DeviceEvent>()
+    private var collectJob: Job? = null
+
     private val tripsRoot: File
         get() = File(context.getExternalFilesDir(null), "trips").also { it.mkdirs() }
 
@@ -76,6 +87,7 @@ class RecordingController @Inject constructor(
             val s = RecordingSession(dir, tripId, sensorHub, eventBus, timeSource, syncEngine, configProvider)
             s.start()
             session = s
+            startCollecting()
             // Best-effort SLAM + georeferencing. If the camera is busy, the engine
             // reports UNAVAILABLE loudly (no fabricated poses); recording continues.
             slamController.start()
@@ -104,6 +116,7 @@ class RecordingController @Inject constructor(
         val trajectoryLengthM = slamController.trajectory.lengthM()
         val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f)
         val gnssScore = if (slamController.fusionState.value.aligned) 1f else 0f
+        val sessionData = stopCollecting()
 
         thermalManager.stop()
         storageManager.stop()
@@ -122,9 +135,47 @@ class RecordingController @Inject constructor(
         if (result != null) {
             // trajectory.geojson sidecar for the Session Detail map.
             runCatching { File(result.tripDir, "trajectory.geojson").writeText(trajectoryGeoJson) }
-            persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets, landmarks)
+            persistTrip(result, trajectoryLengthM, slamScore, gnssScore, assets, landmarks, sessionData)
         }
         return result
+    }
+
+    /** Collected keyframes / GNSS epoch summaries / device events for one session. */
+    private data class SessionData(
+        val keyframes: List<com.mappilot.core.model.Keyframe>,
+        val epochs: List<com.mappilot.core.model.GnssEpoch>,
+        val events: List<com.mappilot.core.model.DeviceEvent>,
+    )
+
+    private fun startCollecting() {
+        synchronized(collectLock) {
+            collectedKeyframes.clear(); collectedEpochs.clear(); collectedEvents.clear()
+        }
+        collectJob = eventBus.events
+            .onEach { event ->
+                when (event) {
+                    is MapPilotEvent.KeyframeSelected ->
+                        synchronized(collectLock) { collectedKeyframes.add(event.keyframe) }
+                    is MapPilotEvent.GnssFixReceived ->
+                        synchronized(collectLock) { collectedEpochs.add(event.epoch) }
+                    is MapPilotEvent.DeviceEventRaised ->
+                        synchronized(collectLock) { collectedEvents.add(event.event) }
+                    else -> Unit
+                }
+            }
+            .launchIn(ioScope)
+    }
+
+    private fun stopCollecting(): SessionData {
+        collectJob?.cancel()
+        collectJob = null
+        return synchronized(collectLock) {
+            SessionData(
+                keyframes = collectedKeyframes.toList(),
+                epochs = collectedEpochs.toList(),
+                events = collectedEvents.toList(),
+            )
+        }
     }
 
     /**
@@ -141,7 +192,7 @@ class RecordingController @Inject constructor(
             .launchIn(ioScope)
     }
 
-    /** Persist the trip header + georeferenced assets + landmarks so search/viz have real data. */
+    /** Persist the trip header + georeferenced assets/landmarks/keyframes/GNSS/events. */
     private fun persistTrip(
         result: RecordingResult,
         distanceM: Double,
@@ -149,6 +200,7 @@ class RecordingController @Inject constructor(
         gnssScore: Float,
         assets: List<com.mappilot.core.model.Asset>,
         landmarks: List<com.mappilot.core.model.Landmark>,
+        sessionData: SessionData,
     ) {
         ioScope.launch {
             try {
@@ -169,9 +221,14 @@ class RecordingController @Inject constructor(
                 )
                 repository.saveAssets(tripId, assets)
                 if (landmarks.isNotEmpty()) repository.saveLandmarks(tripId, landmarks)
+                repository.saveKeyframes(tripId, sessionData.keyframes)
+                repository.saveGnssEpochSummaries(tripId, sessionData.epochs)
+                repository.saveEvents(tripId, sessionData.events)
                 Log.i(
                     Streams.RECORDING,
-                    "Persisted trip $tripId: ${assets.size} assets, ${landmarks.size} landmarks, ${"%.1f".format(distanceM)}m",
+                    "Persisted trip $tripId: ${assets.size} assets, ${landmarks.size} landmarks, " +
+                        "${sessionData.keyframes.size} keyframes, ${sessionData.epochs.size} gnss epochs, " +
+                        "${sessionData.events.size} events, ${"%.1f".format(distanceM)}m",
                 )
             } catch (e: Exception) {
                 Log.e(Streams.RECORDING, e, "Failed to persist trip")

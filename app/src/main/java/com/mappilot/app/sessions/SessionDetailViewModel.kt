@@ -10,6 +10,7 @@ import com.mappilot.core.common.time.NANOS_PER_SECOND
 import com.mappilot.core.database.MapPilotRepository
 import com.mappilot.core.model.Asset
 import com.mappilot.core.model.GeoPoint
+import com.mappilot.core.model.Keyframe
 import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.Trip
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,6 +27,7 @@ data class SessionDetailState(
     val trajectory: List<GeoPoint> = emptyList(),
     val assets: List<Asset> = emptyList(),
     val landmarks: List<Landmark> = emptyList(),
+    val keyframes: List<Keyframe> = emptyList(),
     val quality: QualityReport? = null,
 )
 
@@ -46,9 +48,10 @@ class SessionDetailViewModel @Inject constructor(
             val trip = repository.tripById(tripId)
             val assets = repository.assetsForTrip(tripId)
             val landmarks = repository.landmarksForTrip(tripId)
+            val keyframes = repository.keyframesForTrip(tripId)
             val trajectory = trip?.let { loadTrajectory(it.mcapPath) } ?: emptyList()
-            val quality = trip?.let { computeQuality(it, trajectory, assets, landmarks) }
-            _state.value = SessionDetailState(false, trip, trajectory, assets, landmarks, quality)
+            val quality = trip?.let { computeQuality(it, trajectory, assets, landmarks, keyframes.size) }
+            _state.value = SessionDetailState(false, trip, trajectory, assets, landmarks, keyframes, quality)
         }
     }
 
@@ -58,7 +61,13 @@ class SessionDetailViewModel @Inject constructor(
         return GeoJsonCoords.lineStringPoints(file.readText())
     }
 
-    private fun computeQuality(trip: Trip, trajectory: List<GeoPoint>, assets: List<Asset>, landmarks: List<Landmark>): QualityReport {
+    private fun computeQuality(
+        trip: Trip,
+        trajectory: List<GeoPoint>,
+        assets: List<Asset>,
+        landmarks: List<Landmark>,
+        keyframeCount: Int,
+    ): QualityReport {
         val durationNs = (trip.endedNs ?: trip.startedNs) - trip.startedNs
         return QualityAnalyzer.analyze(
             SessionMetrics(
@@ -67,7 +76,7 @@ class SessionDetailViewModel @Inject constructor(
                 trajectoryGeo = trajectory,
                 // Stored capture-time scores used as the session-level inputs.
                 trackingFraction = trip.slamScore.toDouble(),
-                keyframeCount = trajectory.size,
+                keyframeCount = if (keyframeCount > 0) keyframeCount else trajectory.size,
                 landmarkCount = landmarks.size,
                 fixFraction = trip.gnssScore.toDouble(),
                 meanCn0DbHz = 35.0,

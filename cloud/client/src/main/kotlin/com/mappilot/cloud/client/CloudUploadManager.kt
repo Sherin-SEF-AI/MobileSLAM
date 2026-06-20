@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
@@ -48,6 +50,21 @@ class CloudUploadManager @Inject constructor(
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork("upload_$rowId", ExistingWorkPolicy.KEEP, request)
+        ensureJobPoller()
         Log.i(Streams.CLOUD, "Enqueued upload row=$rowId trip=$tripId ${file.name} -> $baseUrl")
+    }
+
+    /**
+     * Ensure a single periodic [JobPollWorker] is scheduled so jobs that finish
+     * server-side after the inline poll window still reach READY/FAILED in the UI.
+     * 15 min is WorkManager's minimum periodic interval; KEEP avoids duplicates.
+     */
+    private fun ensureJobPoller() {
+        val request = PeriodicWorkRequestBuilder<JobPollWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniquePeriodicWork(JobPollWorker.UNIQUE_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 }

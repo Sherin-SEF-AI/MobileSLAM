@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mappilot.cloud.client.CloudConfig
 import com.mappilot.cloud.client.CloudUploadManager
 import com.mappilot.cloud.client.JobType
 import com.mappilot.core.database.MapPilotRepository
@@ -34,14 +35,12 @@ class ExportViewModel @Inject constructor(
     private val exportService: ExportService,
     private val uploadManager: CloudUploadManager,
     private val repository: MapPilotRepository,
+    private val cloudConfig: CloudConfig,
 ) : ViewModel() {
 
     private val tripId: Long = savedStateHandle.get<Long>("tripId") ?: -1L
     private val _state = MutableStateFlow(ExportUiState(tripId))
     val state: StateFlow<ExportUiState> = _state.asStateFlow()
-
-    /** Configurable backend; defaults to the emulator→host dev server. */
-    var baseUrl: String = "http://10.0.2.2:8000/v1"
 
     fun toggle(format: ExportFormat) {
         val sel = _state.value.selected.toMutableSet()
@@ -60,7 +59,7 @@ class ExportViewModel @Inject constructor(
                 repository.tripById(tripId)?.let { trip ->
                     val mcap = File(trip.mcapPath)
                     result.cloudJobs.forEach { job ->
-                        uploadManager.enqueue(tripId, mcap, jobTypeFor(job), baseUrl)
+                        uploadManager.enqueue(tripId, mcap, jobTypeFor(job), cloudConfig.baseUrl)
                     }
                 }
             }

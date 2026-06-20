@@ -2,15 +2,25 @@ package com.mappilot.core.database
 
 import com.mappilot.core.database.entity.AssetEntity
 import com.mappilot.core.database.entity.GnssFixEntity
+import com.mappilot.core.database.entity.KeyframeEntity
 import com.mappilot.core.database.entity.TripEntity
 import com.mappilot.core.model.Asset
 import com.mappilot.core.model.AssetClass
 import com.mappilot.core.model.BoundingBox
+import com.mappilot.core.model.CameraIntrinsics
+import com.mappilot.core.model.EnuPoint
+import com.mappilot.core.model.EnuPose
 import com.mappilot.core.model.GeoPoint
 import com.mappilot.core.model.GnssFix
+import com.mappilot.core.model.Keyframe
+import com.mappilot.core.model.Pose
 import com.mappilot.core.model.Provenance
+import com.mappilot.core.model.Quaternion
+import com.mappilot.core.model.TrackingFailureReason
+import com.mappilot.core.model.TrackingState
 import com.mappilot.core.model.Trip
 import com.mappilot.core.model.TripStatus
+import com.mappilot.core.model.Vector3
 
 fun AssetEntity.toDomain(): Asset = Asset(
     id = id,
@@ -78,4 +88,28 @@ fun GnssFixEntity.toDomain(): GnssFix = GnssFix(
     speedMps = speedMps, bearingDeg = bearingDeg,
     hAccuracyM = hAccuracyM, vAccuracyM = vAccuracyM,
     provider = "db",
+)
+
+fun KeyframeEntity.toDomain(): Keyframe = Keyframe(
+    frameId = frameId,
+    timestampNs = timestampNs,
+    pose = Pose(
+        timestampNs = timestampNs,
+        position = Vector3(px, py, pz),
+        orientation = Quaternion(qx, qy, qz, qw),
+        trackingState = TrackingState.TRACKING,
+        failureReason = TrackingFailureReason.NONE,
+        confidence = 1f,
+    ),
+    enuPose = if (east != null && north != null && up != null) {
+        EnuPose(timestampNs, EnuPoint(east, north, up), Quaternion(qx, qy, qz, qw), simTransformId = 0)
+    } else {
+        null
+    },
+    intrinsics = if (fx != null && fy != null && cx != null && cy != null) {
+        // Image dimensions aren't persisted per-keyframe; 0 marks them unknown.
+        CameraIntrinsics(fx = fx, fy = fy, cx = cx, cy = cy, imageWidth = 0, imageHeight = 0)
+    } else {
+        null
+    },
 )

@@ -1,10 +1,16 @@
 package com.mappilot.core.database
 
 import com.mappilot.core.database.entity.EmbeddingEntity
+import com.mappilot.core.database.entity.EventEntity
+import com.mappilot.core.database.entity.GnssEpochSummaryEntity
+import com.mappilot.core.database.entity.KeyframeEntity
 import com.mappilot.core.database.entity.LandmarkEntity
 import com.mappilot.core.database.entity.UploadJobEntity
 import com.mappilot.core.database.vector.VectorMath
 import com.mappilot.core.model.Asset
+import com.mappilot.core.model.DeviceEvent
+import com.mappilot.core.model.GnssEpoch
+import com.mappilot.core.model.Keyframe
 import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.Provenance
 import com.mappilot.core.model.Trip
@@ -95,6 +101,78 @@ class MapPilotRepository @Inject constructor(
         )
     }
 
+    /** Persist selected keyframes (pose-graph anchors) for post-session analysis + 3D viz. */
+    suspend fun saveKeyframes(tripId: Long, keyframes: List<Keyframe>) {
+        if (keyframes.isEmpty()) return
+        db.keyframeDao().insertAll(
+            keyframes.map { k ->
+                KeyframeEntity(
+                    tripId = tripId,
+                    frameId = k.frameId,
+                    timestampNs = k.timestampNs,
+                    px = k.pose.position.x, py = k.pose.position.y, pz = k.pose.position.z,
+                    qx = k.pose.orientation.x, qy = k.pose.orientation.y,
+                    qz = k.pose.orientation.z, qw = k.pose.orientation.w,
+                    east = k.enuPose?.enu?.east, north = k.enuPose?.enu?.north, up = k.enuPose?.enu?.up,
+                    fx = k.intrinsics?.fx, fy = k.intrinsics?.fy,
+                    cx = k.intrinsics?.cx, cy = k.intrinsics?.cy,
+                )
+            },
+        )
+    }
+
+    /** Persist one summary row per GNSS epoch (quality over the session). */
+    suspend fun saveGnssEpochSummaries(tripId: Long, epochs: List<GnssEpoch>) {
+        if (epochs.isEmpty()) return
+        db.gnssEpochSummaryDao().insertAll(
+            epochs.map { e ->
+                GnssEpochSummaryEntity(
+                    tripId = tripId,
+                    timestampNs = e.timestampNs,
+                    satsUsed = e.satellitesUsed,
+                    satsVisible = e.satellitesVisible,
+                    meanCn0 = e.meanCn0,
+                    constellationsMask = e.satellites.fold(0) { m, s -> m or (1 shl s.constellation.ordinal) },
+                )
+            },
+        )
+    }
+
+    /** Persist device events (thermal/tracking-loss/storage/sync) for the trip log. */
+    suspend fun saveEvents(tripId: Long, events: List<DeviceEvent>) {
+        if (events.isEmpty()) return
+        db.eventDao().insertAll(
+            events.map { ev ->
+                EventEntity(
+                    tripId = tripId,
+                    timestampNs = ev.timestampNs,
+                    type = ev.type.name,
+                    payload = ev.payload,
+                )
+            },
+        )
+    }
+
+    suspend fun keyframesForTrip(tripId: Long): List<Keyframe> =
+        db.keyframeDao().byTrip(tripId).map { it.toDomain() }
+
+    /**
+     * Delete a trip and every child row. Embeddings go first (they're referenced
+     * by assets); the trip header goes last so a mid-way failure never leaves an
+     * orphaned trip pointing at deleted children.
+     */
+    suspend fun deleteTrip(tripId: Long) {
+        db.embeddingDao().deleteForTrip(tripId)
+        db.assetDao().deleteByTrip(tripId)
+        db.landmarkDao().deleteByTrip(tripId)
+        db.keyframeDao().deleteByTrip(tripId)
+        db.gnssEpochSummaryDao().deleteByTrip(tripId)
+        db.gnssFixDao().deleteByTrip(tripId)
+        db.eventDao().deleteByTrip(tripId)
+        db.uploadJobDao().deleteByTrip(tripId)
+        db.tripDao().deleteById(tripId)
+    }
+
     // --- upload jobs ---
 
     suspend fun queueUpload(tripId: Long, artifact: String, totalBytes: Long): Long =
@@ -111,6 +189,10 @@ class MapPilotRepository @Inject constructor(
     }
 
     suspend fun uploadJob(id: Long): UploadJob? = db.uploadJobDao().byId(id)?.toUploadDomain()
+
+    /** Upload jobs currently in [state] (e.g. PROCESSING) — used by the job poller. */
+    suspend fun uploadJobsInState(state: String): List<UploadJob> =
+        db.uploadJobDao().byState(state).map { it.toUploadDomain() }
 
     fun observeUploadJobs(): Flow<List<UploadJob>> =
         db.uploadJobDao().observeAll().map { list -> list.map { it.toUploadDomain() } }

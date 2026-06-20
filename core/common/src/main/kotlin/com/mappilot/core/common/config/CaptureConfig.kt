@@ -1,9 +1,16 @@
 package com.mappilot.core.common.config
 
 /**
+ * On-device inference backend for the perception model. AUTO probes the GPU
+ * delegate and falls back to CPU/XNNPACK. NNAPI is legacy (deprecated on
+ * Android 15+) and only honoured when explicitly selected.
+ */
+enum class InferenceDelegate { AUTO, GPU, CPU, NNAPI }
+
+/**
  * Capture/runtime configuration with production defaults that meet the §10
- * performance budgets. Surfaced to Settings; persisted via a ConfigStore in a
- * later phase.
+ * performance budgets. Surfaced to (and edited from) Settings and persisted via
+ * a DataStore-backed [ConfigProvider].
  */
 data class CaptureConfig(
     val videoWidth: Int = 1920,
@@ -19,6 +26,8 @@ data class CaptureConfig(
     val syncDriftThresholdNs: Long = 5_000_000, // 5 ms
     /** Capture→write latency above which a HIGH_LATENCY warning is raised. */
     val captureLatencyBudgetNs: Long = 5_000_000, // 5 ms
+    /** Preferred perception inference backend. */
+    val inferenceDelegate: InferenceDelegate = InferenceDelegate.AUTO,
 ) {
     init {
         require(targetFps in 1..120) { "targetFps out of range: $targetFps" }
@@ -27,7 +36,10 @@ data class CaptureConfig(
     }
 }
 
-/** Provides the active [CaptureConfig]. Backed by DataStore in a later phase. */
+/**
+ * Provides the active [CaptureConfig]. The default implementation is
+ * DataStore-backed; [current] returns a synchronous snapshot of persisted state.
+ */
 interface ConfigProvider {
     fun current(): CaptureConfig
 }

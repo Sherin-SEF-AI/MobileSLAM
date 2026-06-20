@@ -32,7 +32,7 @@ import org.maplibre.android.style.sources.GeoJsonSource
  */
 @Composable
 fun MapLibreMapView(
-    trajectory: List<GeoPoint>,
+    trajectories: List<List<GeoPoint>>,
     assets: List<Asset>,
     modifier: Modifier = Modifier,
 ) {
@@ -65,15 +65,15 @@ fun MapLibreMapView(
     AndroidView(modifier = modifier, factory = { mapView }, update = { view ->
         view.getMapAsync { map ->
             map.setStyle(Style.Builder().fromJson(MapGeoJson.DARK_STYLE)) { style ->
-                applyLayers(style, trajectory, assets)
-                centerOn(map, trajectory, assets)
+                applyLayers(style, trajectories, assets)
+                centerOn(map, trajectories, assets)
             }
         }
     })
 }
 
-private fun applyLayers(style: Style, trajectory: List<GeoPoint>, assets: List<Asset>) {
-    style.addSource(GeoJsonSource(SRC_TRAJ, MapGeoJson.trajectoryLineString(trajectory)))
+private fun applyLayers(style: Style, trajectories: List<List<GeoPoint>>, assets: List<Asset>) {
+    style.addSource(GeoJsonSource(SRC_TRAJ, MapGeoJson.trajectoriesFeatureCollection(trajectories)))
     style.addLayer(
         LineLayer(LAYER_TRAJ, SRC_TRAJ).withProperties(
             PropertyFactory.lineColor("#00E676"),
@@ -98,8 +98,8 @@ private fun applyLayers(style: Style, trajectory: List<GeoPoint>, assets: List<A
     )
 }
 
-private fun centerOn(map: org.maplibre.android.maps.MapLibreMap, trajectory: List<GeoPoint>, assets: List<Asset>) {
-    val pts = trajectory.map { LatLng(it.latitude, it.longitude) } +
+private fun centerOn(map: org.maplibre.android.maps.MapLibreMap, trajectories: List<List<GeoPoint>>, assets: List<Asset>) {
+    val pts = trajectories.flatten().map { LatLng(it.latitude, it.longitude) } +
         assets.map { LatLng(it.geo.latitude, it.geo.longitude) }
     when {
         pts.size >= 2 -> map.moveCamera(
