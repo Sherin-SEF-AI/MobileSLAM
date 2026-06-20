@@ -38,9 +38,12 @@ object Letterbox {
      * Build the float32 NHWC input buffer (normalized 0..1) and the [Info] needed
      * to invert detections. Nearest-neighbour sampling; pad with YOLO's 114/255 grey.
      */
-    fun toModelInput(frame: InferenceFrame, inputSize: Int): Pair<ByteBuffer, Info> {
+    fun toModelInput(frame: InferenceFrame, inputSize: Int, reuse: ByteBuffer? = null): Pair<ByteBuffer, Info> {
         val info = infoFor(frame.width, frame.height, inputSize)
-        val buffer = ByteBuffer.allocateDirect(inputSize * inputSize * 3 * 4).order(ByteOrder.nativeOrder())
+        val capacity = inputSize * inputSize * 3 * 4
+        val buffer = (reuse?.takeIf { it.capacity() == capacity }
+            ?: ByteBuffer.allocateDirect(capacity).order(ByteOrder.nativeOrder()))
+        buffer.clear()
         val pad = 114f / 255f
         for (y in 0 until inputSize) {
             val srcYf = (y - info.padY) / info.scale

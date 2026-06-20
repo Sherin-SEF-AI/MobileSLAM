@@ -11,17 +11,34 @@ import com.mappilot.core.model.GeoPoint
 object MapGeoJson {
 
     fun assetsFeatureCollection(assets: List<Asset>): String {
-        val features = assets.joinToString(",") { a ->
-            """{"type":"Feature","properties":{"id":${a.id},"class":"${a.assetClass.name}",""" +
-                """"confidence":${a.confidence}},"geometry":{"type":"Point","coordinates":[${a.geo.longitude},${a.geo.latitude}]}}"""
+        // StringBuilder (sized ~120 B/feature) — avoids the intermediate per-feature
+        // String each joinToString lambda would otherwise allocate for 10k+ assets.
+        val sb = StringBuilder(32 + assets.size * 120)
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[")
+        for (i in assets.indices) {
+            val a = assets[i]
+            if (i > 0) sb.append(',')
+            sb.append("{\"type\":\"Feature\",\"properties\":{\"id\":").append(a.id)
+                .append(",\"class\":\"").append(a.assetClass.name)
+                .append("\",\"confidence\":").append(a.confidence)
+                .append("},\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
+                .append(a.geo.longitude).append(',').append(a.geo.latitude).append("]}}")
         }
-        return """{"type":"FeatureCollection","features":[$features]}"""
+        sb.append("]}")
+        return sb.toString()
     }
 
     fun trajectoryLineString(points: List<GeoPoint>): String {
-        val coords = points.joinToString(",") { "[${it.longitude},${it.latitude}]" }
-        return """{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"kind":"trajectory"},""" +
-            """"geometry":{"type":"LineString","coordinates":[$coords]}}]}"""
+        val sb = StringBuilder(96 + points.size * 24)
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"kind\":\"trajectory\"},")
+            .append("\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+        for (i in points.indices) {
+            val p = points[i]
+            if (i > 0) sb.append(',')
+            sb.append('[').append(p.longitude).append(',').append(p.latitude).append(']')
+        }
+        sb.append("]}}]}")
+        return sb.toString()
     }
 
     /** A minimal MapLibre style with a matte dark background and no external tiles. */

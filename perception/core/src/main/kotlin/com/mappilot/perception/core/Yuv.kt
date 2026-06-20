@@ -6,8 +6,15 @@ package com.mappilot.perception.core
  * planes so the colour math is verified off-device.
  */
 object Yuv {
-    fun nv21ToRgb(nv21: ByteArray, width: Int, height: Int): ByteArray {
-        val rgb = ByteArray(width * height * 3)
+    /**
+     * @param out optional reusable output buffer (size >= width*height*3). When
+     *   provided it is filled and returned, avoiding a per-frame ~1 MB allocation
+     *   on the perception path. Allocates a fresh array only when [out] is null
+     *   or too small.
+     */
+    fun nv21ToRgb(nv21: ByteArray, width: Int, height: Int, out: ByteArray? = null): ByteArray {
+        val needed = width * height * 3
+        val rgb = if (out != null && out.size >= needed) out else ByteArray(needed)
         val frameSize = width * height
         var rgbIdx = 0
         for (j in 0 until height) {

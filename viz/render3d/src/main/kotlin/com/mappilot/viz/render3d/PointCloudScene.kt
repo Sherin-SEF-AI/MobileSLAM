@@ -60,12 +60,14 @@ object PointCloudScene {
             }
             val a = world(apex)
             val cw = corners.map { world(it) }
-            // apex → each corner
-            for (c in cw) { out.addAll(a.toList()); out.addAll(c.toList()) }
-            // far rectangle
-            for (i in 0 until 4) {
-                out.addAll(cw[i].toList()); out.addAll(cw[(i + 1) % 4].toList())
+            fun line(p: FloatArray, q2: FloatArray) {
+                out.add(p[0]); out.add(p[1]); out.add(p[2])
+                out.add(q2[0]); out.add(q2[1]); out.add(q2[2])
             }
+            // apex → each corner
+            for (c in cw) line(a, c)
+            // far rectangle
+            for (i in 0 until 4) line(cw[i], cw[(i + 1) % 4])
         }
         return out.toFloatArray()
     }

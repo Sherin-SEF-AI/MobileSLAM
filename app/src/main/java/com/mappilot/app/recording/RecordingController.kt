@@ -167,7 +167,7 @@ class RecordingController @Inject constructor(
                         provenance = Provenance.ON_DEVICE,
                     ),
                 )
-                assets.forEach { repository.saveAsset(tripId, it, embedding = null) }
+                repository.saveAssets(tripId, assets)
                 if (landmarks.isNotEmpty()) repository.saveLandmarks(tripId, landmarks)
                 Log.i(
                     Streams.RECORDING,

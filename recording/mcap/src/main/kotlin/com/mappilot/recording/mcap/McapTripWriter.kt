@@ -125,8 +125,13 @@ class McapTripWriter(
         write(Topics.CAMERA, f.timestampNs, b.build().toByteArray())
     }
 
+    // Reused builders for the high-rate streams (single writer thread → safe).
+    // Avoids a newBuilder() allocation per IMU/rotation sample at ~100+ Hz.
+    private val imuBuilder = ImuSampleProto.newBuilder()
+    private val rotationBuilder = RotationVector.newBuilder()
+
     fun writeImu(s: ImuSample) {
-        val msg = ImuSampleProto.newBuilder()
+        val msg = imuBuilder.clear()
             .setTimestampNs(s.timestampNs)
             .setX(s.x).setY(s.y).setZ(s.z)
             .setAccuracy(s.accuracy)
@@ -135,7 +140,7 @@ class McapTripWriter(
     }
 
     fun writeRotation(s: RotationSample) {
-        val msg = RotationVector.newBuilder()
+        val msg = rotationBuilder.clear()
             .setTimestampNs(s.timestampNs)
             .setQx(s.qx).setQy(s.qy).setQz(s.qz).setQw(s.qw)
             .setAccuracy(s.accuracy)

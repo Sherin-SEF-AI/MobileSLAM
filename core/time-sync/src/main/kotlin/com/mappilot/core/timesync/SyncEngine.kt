@@ -67,8 +67,11 @@ class SyncEngine @Inject constructor(
             return rawTimestampNs
         }
         val warnings = monitor.onSample(rawTimestampNs, arrivalRealtimeNs)
-        if (warnings.isNotEmpty()) emitWarnings(warnings)
-        publish()
+        val hadWarning = warnings.isNotEmpty()
+        if (hadWarning) emitWarnings(warnings)
+        // Coalesce health publishes to <=20 Hz (always publish on a warning). At
+        // 100+ Hz IMU this avoids hundreds of StateFlow + map rebuilds per second.
+        maybePublish(arrivalRealtimeNs, force = hadWarning)
         return monitor.normalize(rawTimestampNs)
     }
 
@@ -95,6 +98,15 @@ class SyncEngine @Inject constructor(
         }
     }
 
+    @Volatile private var lastPublishNs: Long = 0
+
+    /** Publish at most every [PUBLISH_INTERVAL_NS] unless [force] (e.g. a warning). */
+    private fun maybePublish(nowNs: Long, force: Boolean) {
+        if (!force && nowNs - lastPublishNs < PUBLISH_INTERVAL_NS) return
+        lastPublishNs = nowNs
+        publish()
+    }
+
     private fun publish() {
         val streams = monitors.mapValues { it.value.snapshot() }
         val warnings = synchronized(recentWarnings) { recentWarnings.toList() }
@@ -103,5 +115,6 @@ class SyncEngine @Inject constructor(
 
     private companion object {
         const val MAX_RECENT_WARNINGS = 32
+        const val PUBLISH_INTERVAL_NS = 50_000_000L // 20 Hz health updates
     }
 }

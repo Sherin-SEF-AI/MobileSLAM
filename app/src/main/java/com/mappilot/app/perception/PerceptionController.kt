@@ -79,6 +79,9 @@ class PerceptionController @Inject constructor(
     @Volatile private var latestIntrinsics: CameraIntrinsics? = null
     @Volatile private var thermallyPaused: Boolean = false
 
+    // Reused RGB scratch buffer (perception executor is single-threaded).
+    private var rgbBuffer: ByteArray? = null
+
     private val _state = MutableStateFlow(PerceptionState())
     val state: StateFlow<PerceptionState> = _state.asStateFlow()
 
@@ -144,7 +147,7 @@ class PerceptionController @Inject constructor(
     }
 
     private fun process(image: CameraImage) {
-        val rgb = Yuv.nv21ToRgb(image.nv21, image.width, image.height)
+        val rgb = Yuv.nv21ToRgb(image.nv21, image.width, image.height, rgbBuffer).also { rgbBuffer = it }
         val frame = InferenceFrame(image.frameId, image.timestampNs, image.width, image.height, rgb)
 
         val detections = when (val r = detector.detect(frame)) {

@@ -95,14 +95,16 @@ internal class McapWriter(
         sequenceByChannel[channelId] = seq + 1
 
         val offsetInChunk = chunkRecords.size().toLong()
-        val body = LeBuffer()
+        // Write the Message record framing + body directly into the chunk buffer —
+        // no per-message LeBuffer allocation or intermediate toByteArray() copy.
+        // body = channel_id(2) + sequence(4) + log_time(8) + publish_time(8) + data.
+        val bodyLen = (2 + 4 + 8 + 8 + data.size).toLong()
+        chunkRecords.u8(Mcap.OP_MESSAGE).u64(bodyLen)
             .u16(channelId)
             .u32(seq and 0xFFFFFFFFL)
             .u64(logTimeNs)
             .u64(publishTimeNs)
             .raw(data)
-        // Records inside a chunk are framed exactly like top-level records.
-        appendRecordTo(chunkRecords, Mcap.OP_MESSAGE, body.toByteArray())
 
         chunkMsgIndex.getOrPut(channelId) { ArrayList() }.add(longArrayOf(logTimeNs, offsetInChunk))
         if (logTimeNs < chunkStartTime) chunkStartTime = logTimeNs
@@ -266,10 +268,6 @@ internal class McapWriter(
         val header = LeBuffer().u8(opcode).u64(body.size.toLong()).toByteArray()
         writeBytes(header)
         writeBytes(body)
-    }
-
-    private fun appendRecordTo(buf: LeBuffer, opcode: Int, body: ByteArray) {
-        buf.u8(opcode).u64(body.size.toLong()).raw(body)
     }
 
     private fun writeBytes(b: ByteArray) {

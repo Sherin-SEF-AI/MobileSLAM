@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -61,6 +62,7 @@ class CaptureViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     val hud: StateFlow<CaptureHudState> =
         combine(
             syncEngine.health,
@@ -134,7 +136,11 @@ class CaptureViewModel @Inject constructor(
                     assetCount = perc.assetCount,
                 ),
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CaptureHudState())
+        }
+            // The HUD never needs to redraw faster than ~15 Hz; sampling caps
+            // recomposition + state allocation independent of the 30 fps frame flow.
+            .sample(HUD_SAMPLE_MS)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CaptureHudState())
 
     private val directChannelSupported: Boolean by lazy {
         runCatching { sensorHub.imu.supportsDirectChannel() }.getOrDefault(false)
@@ -167,5 +173,6 @@ class CaptureViewModel @Inject constructor(
 
     private companion object {
         const val MAX_WARNINGS = 6
+        const val HUD_SAMPLE_MS = 66L // ~15 Hz HUD refresh
     }
 }

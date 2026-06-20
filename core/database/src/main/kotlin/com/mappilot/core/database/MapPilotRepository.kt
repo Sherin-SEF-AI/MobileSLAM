@@ -47,6 +47,26 @@ class MapPilotRepository @Inject constructor(
         return db.assetDao().insert(asset.toEntity(tripId, embeddingId))
     }
 
+    /**
+     * Batch-persist assets in a single [AssetDao.insertAll], optionally with a
+     * parallel list of embeddings (null entries → no embedding). Used at trip stop
+     * where dozens–hundreds of assets land at once; one insert beats N round-trips.
+     */
+    suspend fun saveAssets(
+        tripId: Long,
+        assets: List<Asset>,
+        embeddings: List<FloatArray?> = emptyList(),
+    ): List<Long> {
+        if (assets.isEmpty()) return emptyList()
+        val entities = assets.mapIndexed { i, asset ->
+            val embeddingId = embeddings.getOrNull(i)?.let {
+                db.embeddingDao().insert(EmbeddingEntity(dim = it.size, vector = VectorMath.encode(it)))
+            }
+            asset.toEntity(tripId, embeddingId)
+        }
+        return db.assetDao().insertAll(entities)
+    }
+
     suspend fun assetsForTrip(tripId: Long): List<Asset> =
         db.assetDao().byTrip(tripId).map { it.toDomain() }
 

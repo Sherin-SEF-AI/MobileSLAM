@@ -39,6 +39,9 @@ class YoloDetector @Inject constructor(
 
     private val output = Array(1) { Array(YoloDecoder.NUM_CHANNELS) { FloatArray(YoloDecoder.NUM_ANCHORS) } }
 
+    // Reused direct input buffer — avoids a ~5 MB allocateDirect per inference.
+    private var inputBuffer: java.nio.ByteBuffer? = null
+
     override fun load(): MapPilotResult<Unit> {
         if (interpreter != null) return MapPilotResult.Success(Unit)
         return try {
@@ -62,7 +65,8 @@ class YoloDetector @Inject constructor(
     override fun detect(frame: InferenceFrame): MapPilotResult<List<Detection>> {
         val itp = interpreter ?: return MapPilotResult.Unavailable("yolo11n", "model not loaded")
         return try {
-            val (input, letterbox) = Letterbox.toModelInput(frame, inputSize)
+            val (input, letterbox) = Letterbox.toModelInput(frame, inputSize, inputBuffer)
+            inputBuffer = input
             itp.run(input, output)
             // Flatten [1,84,8400] → channel-major FloatArray.
             val flat = FloatArray(YoloDecoder.NUM_CHANNELS * YoloDecoder.NUM_ANCHORS)
