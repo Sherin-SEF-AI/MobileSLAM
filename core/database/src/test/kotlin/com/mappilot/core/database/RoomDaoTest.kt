@@ -6,8 +6,12 @@ import com.google.common.truth.Truth.assertThat
 import com.mappilot.core.database.entity.AssetEntity
 import com.mappilot.core.database.entity.KeyframeEntity
 import com.mappilot.core.database.entity.TripEntity
+import com.mappilot.core.model.Asset
+import com.mappilot.core.model.AssetClass
+import com.mappilot.core.model.BoundingBox
 import com.mappilot.core.model.EnuPoint
 import com.mappilot.core.model.EnuPose
+import com.mappilot.core.model.GeoPoint
 import com.mappilot.core.model.Keyframe
 import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.Pose
@@ -121,6 +125,23 @@ class RoomDaoTest {
         val rows = db.landmarkDao().byTrip(tripId)
         assertThat(rows).hasSize(1)
         assertThat(rows[0].x).isEqualTo(1.0)
+    }
+
+    @Test
+    fun `saveAssets drops non-finite geo and keeps embedding alignment`() = runTest {
+        // Regression: a degenerate VIO->ENU alignment / NaN ARCore pose can yield NaN
+        // asset lat/lon; assets.lat is NOT NULL so NaN->NULL would crash insertAll.
+        val repo = MapPilotRepository(db)
+        val tripId = 13L
+        fun a(lat: Double) = Asset(0, AssetClass.POTHOLE, GeoPoint(lat, 77.5, 900.0), BoundingBox(0f, 0f, 1f, 1f), 0.9f, 0, 5f, null)
+        repo.saveAssets(
+            tripId,
+            listOf(a(12.97), a(Double.NaN), a(13.0)),
+            listOf(floatArrayOf(1f, 2f), floatArrayOf(9f, 9f), null),
+        )
+        // Two finite assets persist; the NaN asset (and its embedding) are dropped.
+        assertThat(db.assetDao().byTrip(tripId)).hasSize(2)
+        assertThat(db.embeddingDao().all()).hasSize(1) // only the first finite asset had an embedding
     }
 
     @Test

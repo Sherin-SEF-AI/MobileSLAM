@@ -92,12 +92,18 @@ class GnssVioFusion @Inject constructor(
         val frame = enuFrame ?: EnuFrame(fix).also { enuFrame = it }
 
         val pose = nearestPose(fixTimestampNs) ?: return
+        // Never anchor on a non-finite VIO pose (ARCore can emit NaN during poor
+        // tracking) — it would poison the Umeyama solution and every georeferenced
+        // point derived from it.
+        if (!pose.position.x.isFinite() || !pose.position.y.isFinite() || !pose.position.z.isFinite()) return
         vioPoints.add(pose.position)
         enuPoints.add(frame.toEnu(fix))
 
         if (vioPoints.size < Umeyama.MIN_CORRESPONDENCES) return
         val sol = Umeyama.solve(vioPoints, enuPoints) ?: return
-        if (sol.rmsErrorM > MAX_RMS_ERROR_M) {
+        // Reject non-finite solutions too: a NaN rms slips past `> MAX` (NaN
+        // comparisons are always false), which would otherwise store a NaN transform.
+        if (!sol.rmsErrorM.isFinite() || sol.rmsErrorM > MAX_RMS_ERROR_M) {
             Log.w(Streams.FUSION, "Alignment rejected: RMS ${"%.2f".format(sol.rmsErrorM)}m > ${MAX_RMS_ERROR_M}m")
             return
         }

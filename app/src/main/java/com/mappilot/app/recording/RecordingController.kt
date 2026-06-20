@@ -113,8 +113,10 @@ class RecordingController @Inject constructor(
         val (assets, assetEmbeddings) = perceptionController.currentAssetsWithEmbeddings()
         val landmarks = slamController.currentLandmarks()
         val trajectoryGeoJson = slamController.trajectory.toGeoJson()
-        val trajectoryLengthM = slamController.trajectory.lengthM()
-        val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f)
+        // Coerce to finite: a non-finite length (NaN trajectory points) bound to the
+        // NOT NULL trips.distanceM column would be stored as NULL → persist crash.
+        val trajectoryLengthM = slamController.trajectory.lengthM().let { if (it.isFinite()) it else 0.0 }
+        val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f).let { if (it.isFinite()) it else 0f }
         val gnssScore = if (slamController.fusionState.value.aligned) 1f else 0f
         val sessionData = stopCollecting()
 

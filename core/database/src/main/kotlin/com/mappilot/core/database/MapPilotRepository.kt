@@ -45,8 +45,15 @@ class MapPilotRepository @Inject constructor(
     fun observeTrips(): kotlinx.coroutines.flow.Flow<List<Trip>> =
         db.tripDao().observeAll().mapEntities()
 
-    /** Persist an extracted asset and (optionally) its embedding; returns asset id. */
+    /** A georeferenced asset is persistable only if its coordinates are finite. */
+    private fun Asset.hasFiniteGeo(): Boolean =
+        geo.latitude.isFinite() && geo.longitude.isFinite() && geo.altitude.isFinite()
+
+    /** Persist an extracted asset and (optionally) its embedding; returns asset id, or -1 if dropped. */
     suspend fun saveAsset(tripId: Long, asset: Asset, embedding: FloatArray?): Long {
+        // Non-finite geo (degenerate VIO→ENU alignment / NaN ARCore pose) would hit
+        // the same NaN→NULL crash as landmarks; drop it rather than fabricate a point.
+        if (!asset.hasFiniteGeo()) return -1L
         val embeddingId = embedding?.let {
             db.embeddingDao().insert(EmbeddingEntity(dim = it.size, vector = VectorMath.encode(it)))
         }
@@ -57,6 +64,7 @@ class MapPilotRepository @Inject constructor(
      * Batch-persist assets in a single [AssetDao.insertAll], optionally with a
      * parallel list of embeddings (null entries → no embedding). Used at trip stop
      * where dozens–hundreds of assets land at once; one insert beats N round-trips.
+     * Assets with non-finite geo are dropped (their embedding too, keeping alignment).
      */
     suspend fun saveAssets(
         tripId: Long,
@@ -64,12 +72,14 @@ class MapPilotRepository @Inject constructor(
         embeddings: List<FloatArray?> = emptyList(),
     ): List<Long> {
         if (assets.isEmpty()) return emptyList()
-        val entities = assets.mapIndexed { i, asset ->
+        val entities = assets.mapIndexedNotNull { i, asset ->
+            if (!asset.hasFiniteGeo()) return@mapIndexedNotNull null
             val embeddingId = embeddings.getOrNull(i)?.let {
                 db.embeddingDao().insert(EmbeddingEntity(dim = it.size, vector = VectorMath.encode(it)))
             }
             asset.toEntity(tripId, embeddingId)
         }
+        if (entities.isEmpty()) return emptyList()
         return db.assetDao().insertAll(entities)
     }
 
@@ -145,7 +155,9 @@ class MapPilotRepository @Inject constructor(
                     timestampNs = e.timestampNs,
                     satsUsed = e.satellitesUsed,
                     satsVisible = e.satellitesVisible,
-                    meanCn0 = e.meanCn0,
+                    // meanCn0 is an average over satellites; coerce a non-finite result
+                    // to 0 (NOT NULL column; NaN would otherwise become NULL → crash).
+                    meanCn0 = e.meanCn0.takeIf { it.isFinite() } ?: 0f,
                     constellationsMask = e.satellites.fold(0) { m, s -> m or (1 shl s.constellation.ordinal) },
                 )
             },

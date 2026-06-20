@@ -93,31 +93,31 @@ class PerceptionController @Inject constructor(
     val state: StateFlow<PerceptionState> = _state.asStateFlow()
 
     fun start() {
-        // Load the model on the perception thread itself: a GPU/NNAPI delegate is
-        // thread-affine and must be created on the same thread that runs detect().
-        val load = perceptionExecutor.submit(java.util.concurrent.Callable {
-            val r = detector.load()
-            depth.load() // best-effort; depth-less detections are still published
-            embedder.load() // best-effort; assets persist without embeddings if absent
-            r
-        }).get()
-        when (load) {
-            is MapPilotResult.Success ->
-                _state.value = PerceptionState(active = true, delegate = detector.activeDelegate, embeddingsAvailable = embedder.available)
-            is MapPilotResult.Unavailable -> {
-                _state.value = PerceptionState(active = false, unavailableReason = load.reason)
-                Log.w(Streams.PERCEPTION, "Detector unavailable: ${load.reason}")
-                return
-            }
-            else -> {
-                _state.value = PerceptionState(active = false, unavailableReason = "load failed")
-                return
+        // Load models on the perception thread (GPU/NNAPI delegates are thread-affine,
+        // so they must be created on the thread that runs detect) but WITHOUT blocking
+        // the caller: a GPU-delegate init can take seconds and the record button is on
+        // the main thread. State flips to active when loading finishes; frames queue
+        // behind the load on the single-thread executor, so detect() always sees a
+        // ready interpreter.
+        perceptionExecutor.execute {
+            when (val load = detector.load()) {
+                is MapPilotResult.Success -> {
+                    depth.load() // best-effort; depth-less detections are still published
+                    embedder.load() // best-effort; assets persist without embeddings if absent
+                    _state.value = PerceptionState(active = true, delegate = detector.activeDelegate, embeddingsAvailable = embedder.available)
+                    Log.i(Streams.PERCEPTION, "Perception active @ ${configProvider.current().perceptionHz} Hz (delegate=${detector.activeDelegate})")
+                }
+                is MapPilotResult.Unavailable -> {
+                    _state.value = PerceptionState(active = false, unavailableReason = load.reason)
+                    Log.w(Streams.PERCEPTION, "Detector unavailable: ${load.reason}")
+                }
+                else -> _state.value = PerceptionState(active = false, unavailableReason = "load failed")
             }
         }
 
         subscribeContext()
         sensorHub.camera.setAnalysisCallback(::onAnalysisFrame)
-        Log.i(Streams.PERCEPTION, "Perception started @ ${configProvider.current().perceptionHz} Hz")
+        Log.i(Streams.PERCEPTION, "Perception starting (loading models off the main thread)")
     }
 
     private fun subscribeContext() {
@@ -204,13 +204,17 @@ class PerceptionController @Inject constructor(
             if (!depthM.isFinite()) continue
             val world = Backprojection.backproject(u, v, depthM.toDouble(), intr, pose.position, pose.orientation)
                 ?: continue
+            // Skip non-finite world (NaN ARCore pose during poor tracking) so it never
+            // poisons the tracker, MCAP, or the georeferenced position.
+            if (!world.x.isFinite() || !world.y.isFinite() || !world.z.isFinite()) continue
             val (tracked, _) = tracker.observe(world, det.assetClass, det.confidence, depthM.toDouble(), det.box, det.sourceFrameId)
+            // VIO world → ENU (Umeyama) → geo (WGS84).
+            val geo = enuFrame.toGeo(transform.apply(tracked.world))
+            if (!geo.latitude.isFinite() || !geo.longitude.isFinite() || !geo.altitude.isFinite()) continue
             // Visual embedding from this frame's crop, computed once per asset.
             if (embedder.available && !assetEmbeddings.containsKey(tracked.id)) {
                 embedder.embed(frame, det.box)?.let { assetEmbeddings[tracked.id] = it }
             }
-            // VIO world → ENU (Umeyama) → geo (WGS84).
-            val geo = enuFrame.toGeo(transform.apply(tracked.world))
             out.add(
                 Asset(
                     id = tracked.id,
