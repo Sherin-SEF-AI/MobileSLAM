@@ -1,8 +1,13 @@
 package com.mappilot.perception.detection
 
 import android.content.Context
+import android.os.Build
+import org.tensorflow.lite.Delegate
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.InterpreterApi
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.nnapi.NnApiDelegate
 import com.mappilot.core.common.config.ConfigProvider
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
@@ -33,6 +38,7 @@ class YoloDetector @Inject constructor(
 ) : Detector {
 
     private var interpreter: InterpreterApi? = null
+    private var delegate: Delegate? = null
     private val inputSize = 640
     override var activeDelegate: String = "none"
         private set
@@ -49,17 +55,60 @@ class YoloDetector @Inject constructor(
             val buffer = ByteBuffer.allocateDirect(model.size).apply {
                 order(ByteOrder.nativeOrder()); put(model); rewind()
             }
-            val options = Interpreter.Options().apply {
-                setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtMost(4))
-            }
-            interpreter = Interpreter(buffer, options)
-            activeDelegate = "cpu-xnnpack"
-            Log.i(Streams.PERCEPTION, "YOLO11n loaded (delegate=$activeDelegate)")
+            val pref = configProvider.current().inferenceDelegate
+            val gpuSupported = runCatching { CompatibilityList().isDelegateSupportedOnThisDevice }.getOrDefault(false)
+            val choice = DelegateSelector.choose(pref, gpuSupported, Build.VERSION.SDK_INT)
+            val (itp, tag) = buildInterpreter(buffer, choice)
+            interpreter = itp
+            activeDelegate = tag
+            Log.i(Streams.PERCEPTION, "YOLO11n loaded (pref=$pref, delegate=$activeDelegate, gpuSupported=$gpuSupported)")
             MapPilotResult.Success(Unit)
         } catch (e: Exception) {
             Log.e(Streams.PERCEPTION, e, "YOLO model load failed")
             MapPilotResult.Unavailable("yolo11n", e.message ?: "load failed")
         }
+    }
+
+    /**
+     * Build the interpreter for [choice], falling back to CPU/XNNPACK if a
+     * delegate cannot be created or the model can't run on it (e.g. unsupported
+     * op). Returns the interpreter plus the delegate tag actually used.
+     * MUST run on the inference thread — GPU/NNAPI delegates are thread-affine.
+     */
+    private fun buildInterpreter(buffer: ByteBuffer, choice: DelegateChoice): Pair<InterpreterApi, String> {
+        if (choice != DelegateChoice.CPU) {
+            try {
+                val options = Interpreter.Options().apply { setNumThreads(cpuThreads()) }
+                val tag = when (choice) {
+                    DelegateChoice.GPU -> {
+                        GpuDelegate(CompatibilityList().bestOptionsForThisDevice).also {
+                            delegate = it; options.addDelegate(it)
+                        }
+                        "gpu"
+                    }
+                    DelegateChoice.NNAPI -> {
+                        NnApiDelegate().also { delegate = it; options.addDelegate(it) }
+                        "nnapi"
+                    }
+                    DelegateChoice.CPU -> "cpu-xnnpack"
+                }
+                return Interpreter(buffer, options) to tag
+            } catch (e: Throwable) {
+                Log.w(Streams.PERCEPTION, "Delegate $choice unavailable, falling back to CPU: ${e.message}")
+                releaseDelegate()
+                buffer.rewind()
+            }
+        }
+        val cpuOptions = Interpreter.Options().apply { setNumThreads(cpuThreads()) }
+        return Interpreter(buffer, cpuOptions) to "cpu-xnnpack"
+    }
+
+    private fun cpuThreads(): Int = Runtime.getRuntime().availableProcessors().coerceAtMost(4)
+
+    private fun releaseDelegate() {
+        runCatching { (delegate as? GpuDelegate)?.close() }
+        runCatching { (delegate as? NnApiDelegate)?.close() }
+        delegate = null
     }
 
     override fun detect(frame: InferenceFrame): MapPilotResult<List<Detection>> {
@@ -95,6 +144,7 @@ class YoloDetector @Inject constructor(
     override fun close() {
         interpreter?.close()
         interpreter = null
+        releaseDelegate()
     }
 
     private companion object {

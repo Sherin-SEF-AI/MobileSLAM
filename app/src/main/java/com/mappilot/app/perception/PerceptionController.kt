@@ -86,7 +86,14 @@ class PerceptionController @Inject constructor(
     val state: StateFlow<PerceptionState> = _state.asStateFlow()
 
     fun start() {
-        when (val load = detector.load()) {
+        // Load the model on the perception thread itself: a GPU/NNAPI delegate is
+        // thread-affine and must be created on the same thread that runs detect().
+        val load = perceptionExecutor.submit(java.util.concurrent.Callable {
+            val r = detector.load()
+            depth.load() // best-effort; depth-less detections are still published
+            r
+        }).get()
+        when (load) {
             is MapPilotResult.Success -> _state.value = PerceptionState(active = true, delegate = detector.activeDelegate)
             is MapPilotResult.Unavailable -> {
                 _state.value = PerceptionState(active = false, unavailableReason = load.reason)
@@ -98,7 +105,6 @@ class PerceptionController @Inject constructor(
                 return
             }
         }
-        depth.load() // best-effort; depth-less detections are still published
 
         subscribeContext()
         sensorHub.camera.setAnalysisCallback(::onAnalysisFrame)
