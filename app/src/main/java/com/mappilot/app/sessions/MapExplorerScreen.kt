@@ -69,5 +69,16 @@ fun MapExplorerScreen(modifier: Modifier = Modifier, viewModel: MapExplorerViewM
             style = TelemetryTextStyle,
             modifier = Modifier.padding(12.dp),
         )
+        if (trajectories.isEmpty() && assets.isEmpty()) {
+            Text(
+                "No georeferenced trips yet.\n\nTrips are placed on the map once they have a GNSS fix. " +
+                    "Record outdoors with GPS to see trajectories and assets here.",
+                color = com.mappilot.app.ui.theme.MapPilotColors.OnSurface,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .align(androidx.compose.ui.Alignment.Center)
+                    .padding(24.dp),
+            )
+        }
     }
 }

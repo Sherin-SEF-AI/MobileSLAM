@@ -1,6 +1,8 @@
 package com.mappilot.app.sessions
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
@@ -18,7 +21,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,7 +61,24 @@ fun SessionDetailScreen(
             }
         }
         when (tab) {
-            0 -> MapLibreMapView(listOf(state.trajectory), state.assets, modifier = Modifier.fillMaxSize())
+            0 -> Box(Modifier.fillMaxSize()) {
+                MapLibreMapView(listOf(state.trajectory), state.assets, modifier = Modifier.fillMaxSize())
+                if (!state.loading && state.trajectory.isEmpty() && state.assets.isEmpty()) {
+                    Text(
+                        "No georeferenced data for this session.\n\nThe map needs a GNSS fix to align the trajectory " +
+                            "and place assets. Record outdoors with GPS to populate it.",
+                        color = MapPilotColors.OnSurface,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MapPilotColors.SurfaceVariant)
+                            .padding(16.dp),
+                    )
+                }
+            }
             1 -> PointCloudView(state.landmarks, keyframes = state.keyframes, modifier = Modifier.fillMaxSize())
             2 -> AssetsTab(state)
             3 -> QualityTab(state)

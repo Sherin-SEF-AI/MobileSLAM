@@ -33,6 +33,19 @@ object PointCloudScene {
         return Vector3(x / n, y / n, z / n)
     }
 
+    /** Largest distance of any landmark from [centroid], used to auto-frame the camera. */
+    fun boundingRadius(landmarks: List<Landmark>, centroid: Vector3): Float {
+        var maxSq = 0.0
+        for (l in landmarks) {
+            val dx = l.position.x - centroid.x
+            val dy = l.position.y - centroid.y
+            val dz = l.position.z - centroid.z
+            val d2 = dx * dx + dy * dy + dz * dz
+            if (d2 > maxSq) maxSq = d2
+        }
+        return kotlin.math.sqrt(maxSq).toFloat()
+    }
+
     /**
      * Line-segment vertices (pairs of x,y,z) for the keyframe frustums: apex →
      * 4 corners and the far rectangle, scaled by [size] metres, centred on

@@ -32,6 +32,15 @@ class PointCloudSceneTest {
     }
 
     @Test
+    fun `bounding radius is the farthest landmark from the centroid`() {
+        val pts = listOf(lm(0.0, 0.0, 0.0), lm(3.0, 4.0, 0.0)) // centroid (1.5,2,0)
+        val c = PointCloudScene.centroid(pts)
+        // each point is 2.5 from the centroid (half of the 5-length 3-4-5 segment).
+        assertThat(PointCloudScene.boundingRadius(pts, c)).isWithin(1e-4f).of(2.5f)
+        assertThat(PointCloudScene.boundingRadius(emptyList(), c)).isEqualTo(0f)
+    }
+
+    @Test
     fun `frustum has 48 floats per keyframe`() {
         val kf = Keyframe(
             frameId = 0, timestampNs = 0,

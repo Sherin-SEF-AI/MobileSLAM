@@ -29,6 +29,14 @@ class OrbitCamera {
         Matrix.perspectiveM(proj, 0, 50f, aspect, 0.1f, 1000f)
     }
 
+    /** Frame the camera so a cloud of [radiusM] about the origin fills the 50 degree view. */
+    fun fitTo(radiusM: Float) {
+        if (radiusM <= 0f || !radiusM.isFinite()) return
+        // Distance so a sphere of radius r fits the vertical half-FOV (25 degrees), with margin.
+        val d = radiusM / sin(Math.toRadians(25.0)).toFloat() * 1.2f
+        distance = d.coerceIn(1f, 200f)
+    }
+
     fun viewProjection(): FloatArray {
         val py = pitchDeg.coerceIn(-89f, 89f)
         val eyeX = distance * cos(Math.toRadians(py.toDouble())) * sin(Math.toRadians(yawDeg.toDouble()))
