@@ -34,7 +34,7 @@ import com.mappilot.core.database.entity.UploadJobEntity
         EventEntity::class,
         UploadJobEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class MapPilotDatabase : RoomDatabase() {
@@ -50,6 +50,14 @@ abstract class MapPilotDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "mappilot.db"
+
+        /** v1 -> v2: semantic anchoring columns on assets (nullable, no backfill needed). */
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE assets ADD COLUMN semanticLabel TEXT")
+                db.execSQL("ALTER TABLE assets ADD COLUMN positionStdM REAL")
+            }
+        }
 
         /**
          * True once R*Tree virtual tables were created successfully. When false

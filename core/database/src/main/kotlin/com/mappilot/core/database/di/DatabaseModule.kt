@@ -32,6 +32,7 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): MapPilotDatabase =
         Room.databaseBuilder(context, MapPilotDatabase::class.java, MapPilotDatabase.NAME)
             .addCallback(MapPilotDatabase.SPATIAL_CALLBACK)
+            .addMigrations(MapPilotDatabase.MIGRATION_1_2)
             .build()
 
     @Provides fun tripDao(db: MapPilotDatabase): TripDao = db.tripDao()

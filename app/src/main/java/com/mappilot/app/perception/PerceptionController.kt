@@ -207,7 +207,10 @@ class PerceptionController @Inject constructor(
             // Skip non-finite world (NaN ARCore pose during poor tracking) so it never
             // poisons the tracker, MCAP, or the georeferenced position.
             if (!world.x.isFinite() || !world.y.isFinite() || !world.z.isFinite()) continue
-            val (tracked, _) = tracker.observe(world, det.assetClass, det.confidence, depthM.toDouble(), det.box, det.sourceFrameId)
+            // Coarse ARCore Scene Semantics label at the detection centre, accumulated
+            // into the landmark's semantic vote.
+            val semLabel = slamEngine.semanticLabelAt(det.box.centerX / frame.width, det.box.centerY / frame.height)
+            val (tracked, _) = tracker.observe(world, det.assetClass, det.confidence, depthM.toDouble(), det.box, det.sourceFrameId, semLabel)
             // VIO world → ENU (Umeyama) → geo (WGS84).
             val geo = enuFrame.toGeo(transform.apply(tracked.world))
             if (!geo.latitude.isFinite() || !geo.longitude.isFinite() || !geo.altitude.isFinite()) continue
@@ -225,6 +228,8 @@ class PerceptionController @Inject constructor(
                     sourceFrameId = tracked.lastFrameId,
                     depthM = tracked.depthAvgM.toFloat(),
                     embeddingId = null,
+                    semanticLabel = tracked.semanticLabel,
+                    positionStdM = tracked.positionStdM.takeIf { it.isFinite() }?.toFloat(),
                 ),
             )
         }
@@ -274,6 +279,8 @@ class PerceptionController @Inject constructor(
                 sourceFrameId = t.lastFrameId,
                 depthM = t.depthAvgM.toFloat(),
                 embeddingId = null,
+                semanticLabel = t.semanticLabel,
+                positionStdM = t.positionStdM.takeIf { s -> s.isFinite() }?.toFloat(),
             )
         }
         val embeddings = snapshot.map { assetEmbeddings[it.id] }

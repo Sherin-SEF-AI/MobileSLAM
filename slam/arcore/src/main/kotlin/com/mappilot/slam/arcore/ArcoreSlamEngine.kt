@@ -6,6 +6,7 @@ import com.google.ar.core.Config
 import com.google.ar.core.Earth
 import com.google.ar.core.Frame
 import com.google.ar.core.Pose as ArPose
+import com.google.ar.core.SemanticLabel
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState as ArTrackingState
 import com.google.ar.core.VpsAvailability
@@ -80,6 +81,13 @@ class ArcoreSlamEngine @Inject constructor(
     @Volatile private var depthW = 0
     @Volatile private var depthH = 0
 
+    // Latest Scene Semantics label image (one byte = SemanticLabel ordinal per pixel).
+    private var semanticEnabled = false
+    @Volatile private var semanticData: ByteArray? = null
+    @Volatile private var semW = 0
+    @Volatile private var semH = 0
+    private val semanticLabels = SemanticLabel.values()
+
     override fun depthAt(uNorm: Float, vNorm: Float): Float {
         val d = depthData ?: return Float.NaN
         if (depthW <= 0 || depthH <= 0) return Float.NaN
@@ -87,6 +95,16 @@ class ArcoreSlamEngine @Inject constructor(
         val y = (vNorm * depthH).toInt().coerceIn(0, depthH - 1)
         val mm = d[y * depthW + x].toInt() and 0x1FFF
         return if (mm > 0) mm / 1000f else Float.NaN
+    }
+
+    override fun semanticLabelAt(uNorm: Float, vNorm: Float): String? {
+        val s = semanticData ?: return null
+        if (semW <= 0 || semH <= 0) return null
+        val x = (uNorm * semW).toInt().coerceIn(0, semW - 1)
+        val y = (vNorm * semH).toInt().coerceIn(0, semH - 1)
+        val ord = s[y * semW + x].toInt() and 0xFF
+        val label = semanticLabels.getOrNull(ord) ?: return null
+        return if (label == SemanticLabel.UNLABELED) null else label.name
     }
 
     override fun start(config: SlamConfig) {
@@ -112,7 +130,9 @@ class ArcoreSlamEngine @Inject constructor(
             val s = Session(context).also { session = it }
             depthSupported = s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
             geospatialEnabled = runCatching { s.isGeospatialModeSupported(Config.GeospatialMode.ENABLED) }.getOrDefault(false)
+            semanticEnabled = runCatching { s.isSemanticModeSupported(Config.SemanticMode.ENABLED) }.getOrDefault(false)
             geoEmitCounter = 0; vpsChecked = false; lastVps = null; latestGeoState = GeospatialState()
+            semanticData = null
             val arConfig = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
@@ -122,9 +142,12 @@ class ArcoreSlamEngine @Inject constructor(
                 // Needs an API key (manifest) at runtime; absent key surfaces as an Earth
                 // error state and the GPS+VIO path takes over, never a crash.
                 if (geospatialEnabled) geospatialMode = Config.GeospatialMode.ENABLED
+                // Scene Semantics: coarse per-pixel outdoor labels (ROAD, SIDEWALK, ...)
+                // used to label assets and reject implausible detections.
+                if (semanticEnabled) semanticMode = Config.SemanticMode.ENABLED
             }
             s.configure(arConfig)
-            Log.i(Streams.SLAM, "ARCore configured (geospatial supported=$geospatialEnabled)")
+            Log.i(Streams.SLAM, "ARCore configured (geospatial=$geospatialEnabled, semantics=$semanticEnabled)")
             s.setCameraTextureName(egl.cameraTextureId)
             s.resume()
             _state.value = SlamState(available = true, trackingState = TrackingState.PAUSED)
@@ -179,6 +202,7 @@ class ArcoreSlamEngine @Inject constructor(
         if (trackingState == TrackingState.TRACKING && (++landmarkEmitCounter % LANDMARK_EMIT_EVERY == 0)) {
             landmarkCount = emitPointCloud(frame, ts)
             if (depthSupported) acquireDepth(frame)
+            if (semanticEnabled) acquireSemantic(frame)
         }
 
         if (geospatialEnabled) updateGeospatial(frame, ts, trackingState)
@@ -306,6 +330,29 @@ class ArcoreSlamEngine @Inject constructor(
             }
         } catch (e: Exception) {
             // Depth not ready this frame — leave the previous map; never fabricate.
+        }
+    }
+
+    private fun acquireSemantic(frame: Frame) {
+        try {
+            frame.acquireSemanticImage().use { img ->
+                val w = img.width; val h = img.height
+                val plane = img.planes[0]
+                val buf = plane.buffer
+                val rowStride = plane.rowStride
+                val pixStride = plane.pixelStride.coerceAtLeast(1)
+                val out = ByteArray(w * h)
+                for (y in 0 until h) {
+                    var off = y * rowStride
+                    for (x in 0 until w) {
+                        out[y * w + x] = buf.get(off)
+                        off += pixStride
+                    }
+                }
+                semanticData = out; semW = w; semH = h
+            }
+        } catch (e: Exception) {
+            // Semantic image not ready this frame — keep the previous; never fabricate.
         }
     }
 

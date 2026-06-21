@@ -50,4 +50,8 @@ data class Asset(
     val sourceFrameId: Long,
     val depthM: Float?,
     val embeddingId: Long?,
+    /** Majority ARCore Scene Semantics label at the asset (e.g. ROAD, SIDEWALK); null if none. */
+    val semanticLabel: String? = null,
+    /** Isotropic 1-sigma positional uncertainty (m) from multi-observation covariance; null if single-shot. */
+    val positionStdM: Float? = null,
 )

@@ -97,6 +97,9 @@ data class AssetEntity(
     val sourceFrameId: Long,
     val depthM: Float?,
     val embeddingId: Long?,
+    // Semantic anchoring (schema v2): majority Scene Semantics label + positional 1-sigma (m).
+    val semanticLabel: String? = null,
+    val positionStdM: Float? = null,
 )
 
 @Entity(tableName = "embeddings")

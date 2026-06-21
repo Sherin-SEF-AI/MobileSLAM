@@ -78,4 +78,11 @@ interface SlamEngine {
      * unavailable — never a fabricated distance. Default: unavailable.
      */
     fun depthAt(uNorm: Float, vNorm: Float): Float = Float.NaN
+
+    /**
+     * ARCore Scene Semantics label at normalized image coords [uNorm],[vNorm] in
+     * [0,1] (e.g. "ROAD", "SIDEWALK", "VEHICLE"), or null when semantics are
+     * unavailable. Never a fabricated label. Default: unavailable.
+     */
+    fun semanticLabelAt(uNorm: Float, vNorm: Float): String? = null
 }

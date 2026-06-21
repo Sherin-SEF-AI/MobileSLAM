@@ -31,6 +31,8 @@ fun AssetEntity.toDomain(): Asset = Asset(
     sourceFrameId = sourceFrameId,
     depthM = depthM,
     embeddingId = embeddingId,
+    semanticLabel = semanticLabel,
+    positionStdM = positionStdM,
 )
 
 fun Asset.toEntity(tripId: Long, embeddingId: Long?): AssetEntity = AssetEntity(
@@ -45,6 +47,8 @@ fun Asset.toEntity(tripId: Long, embeddingId: Long?): AssetEntity = AssetEntity(
     sourceFrameId = sourceFrameId,
     depthM = depthM,
     embeddingId = embeddingId,
+    semanticLabel = semanticLabel,
+    positionStdM = positionStdM,
 )
 
 fun TripEntity.toDomain(): Trip = Trip(
