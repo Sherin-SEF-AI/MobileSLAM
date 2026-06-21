@@ -41,6 +41,7 @@ class CaptureViewModel @Inject constructor(
     private val eventBus: EventBus,
     private val slamController: com.mappilot.app.slam.SlamController,
     private val perceptionController: com.mappilot.app.perception.PerceptionController,
+    private val captureHealthMonitor: CaptureHealthMonitor,
     recordingController: RecordingController,
 ) : ViewModel() {
 
@@ -142,6 +143,16 @@ class CaptureViewModel @Inject constructor(
                     framesDropped = perc.framesDropped,
                     lastDetections = perc.lastDetections,
                     assetCount = perc.assetCount,
+                ),
+            )
+        }.combine(captureHealthMonitor.state) { base, ch ->
+            base.copy(
+                capture = CaptureHealthHud(
+                    speedMps = ch.speedMps,
+                    rotationDegPerS = ch.rotationDegPerS,
+                    rotateInPlace = ch.rotateInPlace,
+                    tooFast = ch.tooFast,
+                    warning = ch.warning,
                 ),
             )
         }

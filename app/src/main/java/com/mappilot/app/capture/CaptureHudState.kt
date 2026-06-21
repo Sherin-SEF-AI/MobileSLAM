@@ -15,8 +15,18 @@ data class CaptureHudState(
     val gnss: GnssHud = GnssHud(),
     val slam: SlamHud = SlamHud(),
     val perception: PerceptionHud = PerceptionHud(),
+    val capture: CaptureHealthHud = CaptureHealthHud(),
     val streams: List<StreamHealth> = emptyList(),
     val warnings: List<SyncWarning> = emptyList(),
+)
+
+/** Capture-behaviour quality from VIO pose deltas (for the live coaching HUD). */
+data class CaptureHealthHud(
+    val speedMps: Double = 0.0,
+    val rotationDegPerS: Double = 0.0,
+    val rotateInPlace: Boolean = false,
+    val tooFast: Boolean = false,
+    val warning: String? = null,
 )
 
 data class PerceptionHud(

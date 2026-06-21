@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -124,6 +125,22 @@ private fun HudOverlay(hud: CaptureHudState, modifier: Modifier = Modifier) {
             .verticalScroll(rememberScrollState()),
     ) {
         StatusBar(hud)
+
+        // Live capture coaching: prevent bad sessions instead of filtering them.
+        hud.capture.warning?.let { w ->
+            Text(
+                "⚠ $w",
+                style = TelemetryTextStyle,
+                fontWeight = FontWeight.Bold,
+                color = if (hud.capture.tooFast || hud.capture.rotateInPlace) MapPilotColors.Recording else MapPilotColors.Degraded,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+
+        Section("CAPTURE HEALTH")
+        Telemetry("speed", fmt(hud.capture.speedMps, "%.1f") + " m/s", warn = hud.capture.tooFast)
+        Telemetry("rotation", fmt(hud.capture.rotationDegPerS, "%.0f") + " deg/s")
+        Telemetry("motion", if (hud.capture.rotateInPlace) "ROTATE-IN-PLACE" else if (hud.capture.tooFast) "TOO FAST" else "good", warn = hud.capture.rotateInPlace || hud.capture.tooFast)
 
         Section("CAMERA")
         val cam = hud.camera
