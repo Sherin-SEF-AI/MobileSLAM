@@ -200,11 +200,18 @@ class CameraCaptureSource @Inject constructor(
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(s: CameraCaptureSession) {
                     session = s
-                    val request = camera.createCaptureRequest(template).apply {
-                        targets.forEach { addTarget(it) }
-                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                    }.build()
-                    s.setRepeatingRequest(request, captureCallback, h)
+                    // The camera can be closed/disconnected (e.g. ARCore takes it, or
+                    // recording stops) by the time this fires; a thrown setRepeatingRequest
+                    // must not crash the app. Camera is best-effort.
+                    try {
+                        val request = camera.createCaptureRequest(template).apply {
+                            targets.forEach { addTarget(it) }
+                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                        }.build()
+                        s.setRepeatingRequest(request, captureCallback, h)
+                    } catch (e: Exception) {
+                        Log.e(Streams.CAMERA, e, "Failed to start repeating request (camera closed?)")
+                    }
                 }
 
                 override fun onConfigureFailed(s: CameraCaptureSession) {
@@ -212,7 +219,11 @@ class CameraCaptureSource @Inject constructor(
                 }
             },
         )
-        camera.createCaptureSession(config)
+        try {
+            camera.createCaptureSession(config)
+        } catch (e: Exception) {
+            Log.e(Streams.CAMERA, e, "createCaptureSession failed (camera unavailable?)")
+        }
     }
 
     private fun createAnalysisReader(h: Handler): Surface {

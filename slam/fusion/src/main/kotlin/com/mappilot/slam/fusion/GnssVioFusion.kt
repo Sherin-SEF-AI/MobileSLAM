@@ -137,6 +137,12 @@ class GnssVioFusion @Inject constructor(
         if (!pose.position.x.isFinite() || !pose.position.y.isFinite() || !pose.position.z.isFinite()) return
         vioPoints.add(pose.position)
         enuPoints.add(frame.toEnu(fix))
+        // Slide a window over recent correspondences: a single global similarity can't
+        // fit VIO that has drifted over a long session, so keep only the recent ones.
+        // The transform then tracks the locally-consistent VIO near the current position.
+        while (vioPoints.size > MAX_CORRESPONDENCES) {
+            vioPoints.removeAt(0); enuPoints.removeAt(0)
+        }
 
         if (vioPoints.size < Umeyama.MIN_CORRESPONDENCES) return
         val sol = Umeyama.solve(vioPoints, enuPoints) ?: return
@@ -181,7 +187,13 @@ class GnssVioFusion @Inject constructor(
     private companion object {
         const val POSE_RING_CAPACITY = 600
         const val MAX_PAIR_DELTA_NS = 100_000_000L // 100 ms
-        const val MAX_FIX_ACCURACY_M = 20f
-        const val MAX_RMS_ERROR_M = 5.0
+        // Consumer-grade GNSS: accept fixes up to ~35 m accuracy, and accept an
+        // alignment whose residual is within the phone-GPS noise floor (a 5 m gate is
+        // below that floor, so it rejected every real fix). Tighter accuracy comes
+        // from the VPS path, not from rejecting usable GPS here.
+        const val MAX_FIX_ACCURACY_M = 35f
+        const val MAX_RMS_ERROR_M = 18.0
+        /** Sliding window of recent VIO<->ENU correspondences fed to Umeyama. */
+        const val MAX_CORRESPONDENCES = 600
     }
 }
