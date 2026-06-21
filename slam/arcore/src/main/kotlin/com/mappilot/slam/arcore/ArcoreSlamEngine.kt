@@ -223,15 +223,17 @@ class ArcoreSlamEngine @Inject constructor(
                 for (i in 0 until n) {
                     val base = i * 4
                     val px = buf.get(base); val py = buf.get(base + 1); val pz = buf.get(base + 2)
-                    // Skip non-finite points (ARCore can emit NaN during early tracking);
-                    // they're invalid measurements and would corrupt MCAP + DB persistence.
+                    val conf = buf.get(base + 3) // ARCore per-point confidence in [0,1]
+                    // Skip non-finite points (NaN during early/poor tracking) and the
+                    // low-confidence tail that blooms the cloud with noise (esp. at speed).
                     if (!px.isFinite() || !py.isFinite() || !pz.isFinite()) continue
+                    if (conf < MIN_POINT_CONFIDENCE) continue
                     landmarks.add(
                         Landmark(
                             id = if (ids != null && i < ids.remaining()) ids.get(i).toLong() else i.toLong(),
                             position = Vector3(px.toDouble(), py.toDouble(), pz.toDouble()),
                             geo = null,
-                            confidence = buf.get(base + 3),
+                            confidence = conf,
                         ),
                     )
                 }
@@ -280,5 +282,6 @@ class ArcoreSlamEngine @Inject constructor(
     private companion object {
         const val LANDMARK_EMIT_EVERY = 10 // ~3 Hz at 30 fps
         const val STOP_TIMEOUT_MS = 3_000L
+        const val MIN_POINT_CONFIDENCE = 0.3f // drop the low-confidence point-cloud tail
     }
 }
