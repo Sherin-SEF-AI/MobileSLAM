@@ -14,6 +14,7 @@ internal object Topics {
     const val IMU_ROTATION = "/imu/rotation_vector"
     const val POSE = "/pose"
     const val POSE_ENU = "/pose/enu"
+    const val POSE_WGS84 = "/pose/wgs84"
     const val LANDMARKS = "/landmarks"
     const val ASSETS = "/assets"
     const val EVENTS = "/events"

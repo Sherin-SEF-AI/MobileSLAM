@@ -38,6 +38,19 @@ sealed interface MapPilotEvent {
     data class GnssFixReceived(override val timestampNs: Long, val epoch: GnssEpoch) : MapPilotEvent
     data class PoseUpdate(override val timestampNs: Long, val pose: Pose) : MapPilotEvent
     data class EnuPoseUpdate(override val timestampNs: Long, val pose: EnuPose) : MapPilotEvent
+
+    /** Georeferenced camera pose in absolute WGS84 (the dataset's pose primitive). */
+    data class GeoPoseUpdate(
+        override val timestampNs: Long,
+        val lat: Double,
+        val lon: Double,
+        val alt: Double,
+        val headingDeg: Double,
+        val orientation: Quaternion,
+        val horizontalAccuracyM: Float,
+        val headingAccuracyDeg: Float,
+        val source: String, // "vps" | "gps"
+    ) : MapPilotEvent
     data class KeyframeSelected(override val timestampNs: Long, val keyframe: Keyframe) : MapPilotEvent
     data class LandmarksUpdated(override val timestampNs: Long, val landmarks: List<Landmark>) : MapPilotEvent
     data class DetectionBatch(override val timestampNs: Long, val detections: List<Detection>) : MapPilotEvent

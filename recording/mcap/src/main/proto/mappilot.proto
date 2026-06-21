@@ -33,6 +33,12 @@ message Intrinsics {
   double k3 = 9;
 }
 
+// Rigid transform (e.g. IMU -> camera extrinsics).
+message Transform {
+  Vec3 translation = 1;
+  Quaternion rotation = 2;
+}
+
 // /camera
 message CameraFrame {
   uint64 frame_id = 1;
@@ -127,6 +133,19 @@ message PoseEnu {
   uint64 sim_transform_id = 4;
 }
 
+// /pose/wgs84 : georeferenced camera pose in absolute WGS84 (the dataset primitive).
+message GeoPose {
+  uint64 timestamp_ns = 1;
+  double lat = 2;
+  double lon = 3;
+  double alt = 4;
+  double heading_deg = 5;
+  Quaternion orientation = 6;
+  float horizontal_accuracy_m = 7;   // <0 when unknown
+  float heading_accuracy_deg = 8;    // <0 when unknown
+  string source = 9;                 // "vps" | "gps"
+}
+
 // /landmarks
 message Landmarks {
   uint64 timestamp_ns = 1;
@@ -163,6 +182,8 @@ message Assets {
     float confidence = 7;
     uint64 source_frame_id = 8;
     float depth_m = 9;
+    string semantic_label = 10;   // ARCore Scene Semantics majority label, empty if none
+    float position_std_m = 11;    // 1-sigma positional uncertainty, <0 if single-shot
   }
 }
 
@@ -183,4 +204,6 @@ message Calibration {
   uint32 image_height = 6;
   string camera_timestamp_source = 7;
   map<string, int64> timebase_offsets_ns = 8;
+  Transform imu_to_cam = 9;          // IMU -> camera extrinsics
+  bool has_imu_to_cam = 10;          // false: ARCore does not expose it (not fabricated)
 }

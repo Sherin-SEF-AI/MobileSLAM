@@ -83,6 +83,20 @@ class SlamController @Inject constructor(
                                 up = event.pose.enu.up,
                             ),
                         )
+                        // Emit the absolute WGS84 pose for the MCAP data contract.
+                        val fs = fusion.state.value
+                        val gs = slamState.value.geospatial
+                        eventBus.emit(
+                            MapPilotEvent.GeoPoseUpdate(
+                                timestampNs = event.timestampNs,
+                                lat = geo.latitude, lon = geo.longitude, alt = geo.altitude,
+                                headingDeg = if (fs.vps && gs.headingDeg.isFinite()) gs.headingDeg else Double.NaN,
+                                orientation = event.pose.orientation,
+                                horizontalAccuracyM = if (fs.vps) gs.horizontalAccuracyM.toFloat() else -1f,
+                                headingAccuracyDeg = if (fs.vps) gs.headingAccuracyDeg.toFloat() else -1f,
+                                source = if (fs.vps) "vps" else "gps",
+                            ),
+                        )
                     }
                     else -> Unit
                 }

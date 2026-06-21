@@ -130,6 +130,12 @@ class RecordingSession(
                     is MapPilotEvent.GnssFixReceived -> writer.post { mcap?.writeGnss(event.epoch) }
                     is MapPilotEvent.PoseUpdate -> writer.post { mcap?.writePose(event.pose) }
                     is MapPilotEvent.EnuPoseUpdate -> writer.post { mcap?.writeEnuPose(event.pose) }
+                    is MapPilotEvent.GeoPoseUpdate -> writer.post {
+                        mcap?.writeGeoPose(
+                            event.timestampNs, event.lat, event.lon, event.alt, event.headingDeg,
+                            event.orientation, event.horizontalAccuracyM, event.headingAccuracyDeg, event.source,
+                        )
+                    }
                     is MapPilotEvent.LandmarksUpdated -> writer.post { mcap?.writeLandmarks(event.timestampNs, event.landmarks) }
                     is MapPilotEvent.AssetsExtracted -> writer.post { mcap?.writeAssets(event.timestampNs, event.assets) }
                     is MapPilotEvent.DeviceEventRaised -> writer.post { mcap?.writeEvent(event.event) }

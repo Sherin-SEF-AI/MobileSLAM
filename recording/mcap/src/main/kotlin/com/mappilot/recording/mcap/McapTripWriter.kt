@@ -16,9 +16,11 @@ import com.mappilot.recording.mcap.proto.Assets
 import com.mappilot.recording.mcap.proto.Calibration
 import com.mappilot.recording.mcap.proto.CameraFrame
 import com.mappilot.recording.mcap.proto.Event
+import com.mappilot.recording.mcap.proto.GeoPose
 import com.mappilot.recording.mcap.proto.GpsFix
 import com.mappilot.recording.mcap.proto.GpsRaw
 import com.mappilot.recording.mcap.proto.GpsSat
+import com.mappilot.recording.mcap.proto.Transform
 import com.mappilot.recording.mcap.proto.Intrinsics
 import com.mappilot.recording.mcap.proto.Landmarks
 import com.mappilot.recording.mcap.proto.PoseEnu
@@ -62,6 +64,7 @@ class McapTripWriter(
         channel(Topics.IMU_ROTATION, RotationVector.getDescriptor())
         channel(Topics.POSE, PoseProto.getDescriptor())
         channel(Topics.POSE_ENU, PoseEnu.getDescriptor())
+        channel(Topics.POSE_WGS84, GeoPose.getDescriptor())
         channel(Topics.LANDMARKS, Landmarks.getDescriptor())
         channel(Topics.ASSETS, Assets.getDescriptor())
         channel(Topics.EVENTS, Event.getDescriptor())
@@ -105,6 +108,10 @@ class McapTripWriter(
             b.imageWidth = intrinsics.imageWidth
             b.imageHeight = intrinsics.imageHeight
         }
+        // IMU->camera extrinsics: ARCore does not expose them, so the slot is present
+        // in the contract but flagged unknown rather than fabricated (identity).
+        b.hasImuToCam = false
+        b.imuToCam = Transform.getDefaultInstance()
         write(Topics.CALIBRATION, ts, b.build().toByteArray())
     }
 
@@ -208,6 +215,29 @@ class McapTripWriter(
         write(Topics.POSE_ENU, p.timestampNs, msg.toByteArray())
     }
 
+    /** Georeferenced camera pose in absolute WGS84 (the dataset's pose primitive). */
+    fun writeGeoPose(
+        ts: Long,
+        lat: Double,
+        lon: Double,
+        alt: Double,
+        headingDeg: Double,
+        orientation: com.mappilot.core.model.Quaternion,
+        hAccuracyM: Float,
+        headingAccuracyDeg: Float,
+        source: String,
+    ) {
+        val msg = GeoPose.newBuilder()
+            .setTimestampNs(ts)
+            .setLat(lat).setLon(lon).setAlt(alt).setHeadingDeg(headingDeg)
+            .setOrientation(orientation.toProto())
+            .setHorizontalAccuracyM(hAccuracyM)
+            .setHeadingAccuracyDeg(headingAccuracyDeg)
+            .setSource(source)
+            .build()
+        write(Topics.POSE_WGS84, ts, msg.toByteArray())
+    }
+
     fun writeLandmarks(ts: Long, landmarks: List<Landmark>) {
         val b = Landmarks.newBuilder().setTimestampNs(ts)
         landmarks.forEach { l ->
@@ -235,7 +265,9 @@ class McapTripWriter(
                     )
                     .setConfidence(a.confidence)
                     .setSourceFrameId(a.sourceFrameId)
-                    .setDepthM(a.depthM ?: Float.NaN),
+                    .setDepthM(a.depthM ?: Float.NaN)
+                    .setSemanticLabel(a.semanticLabel ?: "")
+                    .setPositionStdM(a.positionStdM ?: -1f),
             )
         }
         write(Topics.ASSETS, ts, b.build().toByteArray())
