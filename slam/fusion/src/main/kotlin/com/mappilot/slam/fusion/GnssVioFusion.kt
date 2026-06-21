@@ -24,6 +24,8 @@ data class FusionState(
     val rmsErrorM: Double = Double.NaN,
     val scale: Double = Double.NaN,
     val transformId: Long = 0,
+    /** True when the active transform came from ARCore Geospatial (VPS), not GPS. */
+    val vps: Boolean = false,
 )
 
 /**
@@ -50,6 +52,9 @@ class GnssVioFusion @Inject constructor(
     @Volatile private var transform: SimilarityTransform? = null
     private var transformId: Long = 0
 
+    /** Once VPS provides a transform, GPS-based alignment yields to it (more accurate). */
+    @Volatile private var vpsActive = false
+
     /** Recent VIO poses keyed by timestamp, to pair with a GNSS fix near its time. */
     private val recentPoses = ConcurrentHashMap<Long, Pose>()
     private val poseRing = ArrayDeque<Long>()
@@ -61,6 +66,7 @@ class GnssVioFusion @Inject constructor(
         enuPoints.clear()
         transform = null
         transformId = 0
+        vpsActive = false
         recentPoses.clear()
         poseRing.clear()
         _state.value = FusionState()
@@ -85,9 +91,42 @@ class GnssVioFusion @Inject constructor(
         )
     }
 
+    /**
+     * Feed Earth-anchored (VPS) correspondences for one keyframe: exact VIO<->WGS84
+     * pairs from ARCore Geospatial. A single keyframe's set solves the VIO->ENU
+     * transform directly (no GPS-vs-VIO accumulation, no drift), and it takes
+     * precedence over GPS while VPS is active. This is what makes vehicle-speed and
+     * multi-session capture work where the GPS+VIO path cannot.
+     */
+    @Synchronized
+    fun onGeospatial(
+        correspondences: List<com.mappilot.core.model.GeoCorrespondence>,
+        hAccuracyM: Float,
+        headingAccuracyDeg: Float,
+    ) {
+        val valid = correspondences.filter {
+            it.vio.x.isFinite() && it.vio.y.isFinite() && it.vio.z.isFinite() &&
+                it.geo.latitude.isFinite() && it.geo.longitude.isFinite()
+        }
+        if (valid.size < Umeyama.MIN_CORRESPONDENCES) return
+        val frame = enuFrame ?: EnuFrame(valid.first().geo).also { enuFrame = it }
+        val vio = valid.map { it.vio }
+        val enu = valid.map { frame.toEnu(it.geo) }
+        val sol = Umeyama.solve(vio, enu) ?: return
+        if (!sol.rmsErrorM.isFinite() || sol.rmsErrorM > MAX_RMS_ERROR_M) return
+        vpsActive = true
+        transform = sol
+        transformId++
+        _state.value = FusionState(
+            aligned = true, correspondences = sol.correspondences, rmsErrorM = sol.rmsErrorM,
+            scale = sol.scale, transformId = transformId, vps = true,
+        )
+    }
+
     /** Feed a GNSS fix. Adds a correspondence (if a near-in-time VIO pose exists) and re-solves. */
     @Synchronized
     fun onGnssFix(fix: GeoPoint, fixTimestampNs: Long, hAccuracyM: Float) {
+        if (vpsActive) return // VPS transform is live and more accurate; ignore GPS
         if (hAccuracyM > MAX_FIX_ACCURACY_M && hAccuracyM >= 0) return // too noisy to anchor on
         val frame = enuFrame ?: EnuFrame(fix).also { enuFrame = it }
 

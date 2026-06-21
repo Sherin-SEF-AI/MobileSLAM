@@ -14,6 +14,27 @@ data class SlamConfig(
     val keyframeMinIntervalNs: Long = 250_000_000, // 4 Hz cap
 )
 
+/**
+ * ARCore Geospatial (VPS) status for the HUD and georeferencing. All values come
+ * from ARCore's Earth object; absent or untracked surfaces as not-tracking with a
+ * NaN pose, never a fabricated position.
+ */
+data class GeospatialState(
+    /** Whether the device + session support Geospatial mode (and a key is present). */
+    val supported: Boolean = false,
+    /** VPS coverage at the current location: null = unknown/checking. */
+    val vpsAvailable: Boolean? = null,
+    /** Earth (VPS) is currently tracking with a usable pose. */
+    val earthTracking: Boolean = false,
+    val latitude: Double = Double.NaN,
+    val longitude: Double = Double.NaN,
+    val headingDeg: Double = Double.NaN,
+    /** Reported horizontal accuracy (m); -1 when unknown. */
+    val horizontalAccuracyM: Double = -1.0,
+    /** Reported heading accuracy (deg); -1 when unknown. */
+    val headingAccuracyDeg: Double = -1.0,
+)
+
 /** Live SLAM status for the HUD and analytics. All values from the tracker. */
 data class SlamState(
     val available: Boolean = false,
@@ -29,6 +50,8 @@ data class SlamState(
     val cameraIntrinsics: com.mappilot.core.model.CameraIntrinsics? = null,
     val depthAvailable: Boolean = false,
     val unavailableReason: String? = null,
+    /** ARCore Geospatial / VPS status. */
+    val geospatial: GeospatialState = GeospatialState(),
 )
 
 /**

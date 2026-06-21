@@ -44,6 +44,15 @@ data class SlamHud(
     val correspondences: Int = 0,
     val alignmentRmsM: Double = Double.NaN,
     val alignmentScale: Double = Double.NaN,
+    val georefSource: String = "none", // "vps" | "gps" | "none"
+    // ARCore Geospatial / VPS
+    val vpsSupported: Boolean = false,
+    val vpsAvailable: Boolean? = null,
+    val earthTracking: Boolean = false,
+    val geoLat: Double = Double.NaN,
+    val geoLon: Double = Double.NaN,
+    val geoHeadingDeg: Double = Double.NaN,
+    val geoHAccuracyM: Double = -1.0,
 )
 
 data class CameraHud(

@@ -43,6 +43,10 @@
              degrades loudly rather than failing at install. -->
         <meta-data android:name="com.google.ar.core" android:value="optional" />
 
+        <!-- ARCore Geospatial (VPS) API key, injected from local.properties
+             (AR_API_KEY). Empty when unset; Geospatial mode then stays disabled. -->
+        <meta-data android:name="com.google.android.ar.API_KEY" android:value="${arApiKey}" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

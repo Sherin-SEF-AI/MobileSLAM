@@ -62,6 +62,8 @@ class SlamController @Inject constructor(
             .onEach { event ->
                 when (event) {
                     is MapPilotEvent.PoseUpdate -> fusion.onPose(event.pose)
+                    is MapPilotEvent.GeospatialUpdate ->
+                        fusion.onGeospatial(event.correspondences, event.horizontalAccuracyM, event.headingAccuracyDeg)
                     is MapPilotEvent.GnssFixReceived -> event.epoch.fix?.let { fix ->
                         fusion.onGnssFix(
                             GeoPoint(fix.latitude, fix.longitude, fix.altitude),

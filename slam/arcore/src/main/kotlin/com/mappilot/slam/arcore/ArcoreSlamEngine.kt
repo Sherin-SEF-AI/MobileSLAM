@@ -3,14 +3,19 @@ package com.mappilot.slam.arcore
 import android.content.Context
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Config
+import com.google.ar.core.Earth
 import com.google.ar.core.Frame
+import com.google.ar.core.Pose as ArPose
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState as ArTrackingState
+import com.google.ar.core.VpsAvailability
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.mappilot.core.common.bus.EventBus
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
 import com.mappilot.core.model.CameraIntrinsics
+import com.mappilot.core.model.GeoCorrespondence
+import com.mappilot.core.model.GeoPoint
 import com.mappilot.core.model.Keyframe
 import com.mappilot.core.model.Landmark
 import com.mappilot.core.model.MapPilotEvent
@@ -19,6 +24,7 @@ import com.mappilot.core.model.Quaternion
 import com.mappilot.core.model.TrackingFailureReason
 import com.mappilot.core.model.TrackingState
 import com.mappilot.core.model.Vector3
+import com.mappilot.slam.core.GeospatialState
 import com.mappilot.slam.core.KeyframeSelector
 import com.mappilot.slam.core.PoseGraph
 import com.mappilot.slam.core.SlamConfig
@@ -61,6 +67,13 @@ class ArcoreSlamEngine @Inject constructor(
     private var landmarkEmitCounter = 0
     private var depthSupported = false
 
+    // ARCore Geospatial (VPS) state, all on the AR thread.
+    private var geospatialEnabled = false
+    private var geoEmitCounter = 0
+    private var vpsChecked = false
+    @Volatile private var lastVps: Boolean? = null
+    @Volatile private var latestGeoState = GeospatialState()
+
     // Latest depth map (ARCore Depth API), copied off the GL thread so perception
     // can sample it. Masked to 13-bit millimetres on read.
     @Volatile private var depthData: ShortArray? = null
@@ -98,13 +111,20 @@ class ArcoreSlamEngine @Inject constructor(
             egl.create()
             val s = Session(context).also { session = it }
             depthSupported = s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
+            geospatialEnabled = runCatching { s.isGeospatialModeSupported(Config.GeospatialMode.ENABLED) }.getOrDefault(false)
+            geoEmitCounter = 0; vpsChecked = false; lastVps = null; latestGeoState = GeospatialState()
             val arConfig = Config(s).apply {
                 updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                 focusMode = Config.FocusMode.AUTO
                 if (depthSupported) depthMode = Config.DepthMode.AUTOMATIC
                 planeFindingMode = Config.PlaneFindingMode.DISABLED // mapping, not AR placement
+                // Earth-anchored (VPS) poses for drift-free, multi-session georeferencing.
+                // Needs an API key (manifest) at runtime; absent key surfaces as an Earth
+                // error state and the GPS+VIO path takes over, never a crash.
+                if (geospatialEnabled) geospatialMode = Config.GeospatialMode.ENABLED
             }
             s.configure(arConfig)
+            Log.i(Streams.SLAM, "ARCore configured (geospatial supported=$geospatialEnabled)")
             s.setCameraTextureName(egl.cameraTextureId)
             s.resume()
             _state.value = SlamState(available = true, trackingState = TrackingState.PAUSED)
@@ -161,6 +181,8 @@ class ArcoreSlamEngine @Inject constructor(
             if (depthSupported) acquireDepth(frame)
         }
 
+        if (geospatialEnabled) updateGeospatial(frame, ts, trackingState)
+
         _state.value = SlamState(
             available = true,
             trackingState = trackingState,
@@ -172,7 +194,81 @@ class ArcoreSlamEngine @Inject constructor(
             quality = qualityOf(trackingState, pose.failureReason),
             cameraIntrinsics = intrinsics,
             depthAvailable = depthData != null,
+            geospatial = latestGeoState,
         )
+    }
+
+    /**
+     * Read the ARCore Earth pose and, at keyframe rate when accuracy is usable,
+     * emit exact VIO<->WGS84 correspondences (via [Earth.getGeospatialPose]) for the
+     * fusion to solve a drift-free transform. Also fires a one-time VPS-coverage
+     * check at the first good location. All on the AR thread.
+     */
+    private fun updateGeospatial(frame: Frame, ts: Long, trackingState: TrackingState) {
+        val earth = session?.earth ?: return
+        if (earth.earthState != Earth.EarthState.ENABLED) {
+            latestGeoState = GeospatialState(supported = false)
+            return
+        }
+        val tracking = earth.trackingState == ArTrackingState.TRACKING && trackingState == TrackingState.TRACKING
+        if (!tracking) {
+            latestGeoState = GeospatialState(supported = true, vpsAvailable = lastVps, earthTracking = false)
+            return
+        }
+        val gp = earth.cameraGeospatialPose
+        latestGeoState = GeospatialState(
+            supported = true,
+            vpsAvailable = lastVps,
+            earthTracking = true,
+            latitude = gp.latitude,
+            longitude = gp.longitude,
+            headingDeg = gp.heading,
+            horizontalAccuracyM = gp.horizontalAccuracy,
+            headingAccuracyDeg = gp.headingAccuracy,
+        )
+        maybeCheckVps(gp.latitude, gp.longitude)
+        if (gp.horizontalAccuracy in 0.0..MAX_GEO_ACCURACY_M && (++geoEmitCounter % GEO_EMIT_EVERY == 0)) {
+            emitGeospatialCorrespondences(earth, frame, ts, gp.horizontalAccuracy.toFloat(), gp.headingAccuracy.toFloat())
+        }
+    }
+
+    /** Probe 4 non-coplanar VIO points through ARCore's exact geo conversion. */
+    private fun emitGeospatialCorrespondences(earth: Earth, frame: Frame, ts: Long, hAcc: Float, headingAcc: Float) {
+        val c = frame.camera.pose
+        val cx = c.tx(); val cy = c.ty(); val cz = c.tz()
+        val d = PROBE_OFFSET_M
+        val vioProbes = arrayOf(
+            floatArrayOf(cx, cy, cz),
+            floatArrayOf(cx + d, cy, cz),
+            floatArrayOf(cx, cy + d, cz),
+            floatArrayOf(cx, cy, cz + d),
+        )
+        val corr = ArrayList<GeoCorrespondence>(vioProbes.size)
+        for (p in vioProbes) {
+            val g = earth.getGeospatialPose(ArPose.makeTranslation(p[0], p[1], p[2]))
+            corr.add(
+                GeoCorrespondence(
+                    Vector3(p[0].toDouble(), p[1].toDouble(), p[2].toDouble()),
+                    GeoPoint(g.latitude, g.longitude, g.altitude),
+                ),
+            )
+        }
+        eventBus.emit(MapPilotEvent.GeospatialUpdate(ts, corr, hAcc, headingAcc))
+    }
+
+    private fun maybeCheckVps(lat: Double, lon: Double) {
+        if (vpsChecked) return
+        vpsChecked = true
+        runCatching {
+            session?.checkVpsAvailabilityAsync(lat, lon) { availability ->
+                lastVps = when (availability) {
+                    VpsAvailability.AVAILABLE -> true
+                    VpsAvailability.UNAVAILABLE -> false
+                    else -> null
+                }
+                Log.i(Streams.SLAM, "VPS availability at ($lat,$lon): $availability")
+            }
+        }.onFailure { Log.w(Streams.SLAM, "VPS availability check failed: ${it.message}") }
     }
 
     private fun extractIntrinsics(camera: com.google.ar.core.Camera): CameraIntrinsics? = try {
@@ -283,5 +379,8 @@ class ArcoreSlamEngine @Inject constructor(
         const val LANDMARK_EMIT_EVERY = 10 // ~3 Hz at 30 fps
         const val STOP_TIMEOUT_MS = 3_000L
         const val MIN_POINT_CONFIDENCE = 0.3f // drop the low-confidence point-cloud tail
+        const val GEO_EMIT_EVERY = 15 // ~2 Hz geospatial correspondences at 30 fps
+        const val MAX_GEO_ACCURACY_M = 15.0 // only anchor when VPS horizontal accuracy is usable
+        const val PROBE_OFFSET_M = 5f // VIO probe spread for the geo correspondence solve
     }
 }

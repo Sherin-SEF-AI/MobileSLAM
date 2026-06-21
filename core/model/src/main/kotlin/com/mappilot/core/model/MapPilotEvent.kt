@@ -17,6 +17,13 @@ data class SyncWarning(
 )
 
 /**
+ * One VIO-frame point paired with its absolute WGS84 position, produced by the
+ * ARCore Geospatial (VPS) conversion. A small set of these per keyframe is enough
+ * to solve the VIO->ENU similarity transform without GPS-vs-VIO alignment.
+ */
+data class GeoCorrespondence(val vio: Vector3, val geo: GeoPoint)
+
+/**
  * The single typed event carried over the in-process bus (a SharedFlow in
  * :core:common). Hot-path producers (camera, IMU, GNSS, SLAM, perception) emit
  * these; recording, fusion, and UI subscribe. No direct cross-module calls on
@@ -39,4 +46,16 @@ sealed interface MapPilotEvent {
     data class ThermalChanged(override val timestampNs: Long, val state: ThermalState) : MapPilotEvent
     data class RecordingStateChanged(override val timestampNs: Long, val state: RecordingState) : MapPilotEvent
     data class DeviceEventRaised(override val timestampNs: Long, val event: DeviceEvent) : MapPilotEvent
+
+    /**
+     * Earth-anchored (VPS) correspondences for one keyframe: VIO points and their
+     * WGS84 positions from ARCore Geospatial, plus the reported accuracies. The
+     * fusion layer turns these into a drift-corrected VIO->ENU transform.
+     */
+    data class GeospatialUpdate(
+        override val timestampNs: Long,
+        val correspondences: List<GeoCorrespondence>,
+        val horizontalAccuracyM: Float,
+        val headingAccuracyDeg: Float,
+    ) : MapPilotEvent
 }

@@ -178,9 +178,26 @@ private fun HudOverlay(hud: CaptureHudState, modifier: Modifier = Modifier) {
 
         Section("GEOREF")
         Telemetry("aligned", if (s.georeferenced) "LOCK" else "pending", warn = !s.georeferenced)
+        Telemetry("source", s.georefSource.uppercase(), warn = s.georefSource == "none")
         Telemetry("corresp", s.correspondences.toString())
-        Telemetry("rms", if (s.alignmentRmsM.isNaN()) "—" else fmt(s.alignmentRmsM, "%.2f") + " m")
-        Telemetry("scale", if (s.alignmentScale.isNaN()) "—" else fmt(s.alignmentScale, "%.3f"))
+        Telemetry("rms", if (s.alignmentRmsM.isNaN()) "n/a" else fmt(s.alignmentRmsM, "%.2f") + " m")
+        Telemetry("scale", if (s.alignmentScale.isNaN()) "n/a" else fmt(s.alignmentScale, "%.3f"))
+
+        Section("VPS / GEOSPATIAL")
+        if (!s.vpsSupported) {
+            Telemetry("status", "unsupported / no key", warn = true)
+        } else {
+            val avail = when (s.vpsAvailable) {
+                true -> "AVAILABLE"; false -> "UNAVAILABLE"; null -> "checking"
+            }
+            Telemetry("availability", avail, warn = s.vpsAvailable != true)
+            Telemetry("earth", if (s.earthTracking) "TRACKING" else "pending", warn = !s.earthTracking)
+            if (s.earthTracking) {
+                Telemetry("geo", "%.6f, %.6f".format(s.geoLat, s.geoLon))
+                Telemetry("heading", if (s.geoHeadingDeg.isNaN()) "n/a" else fmt(s.geoHeadingDeg, "%.0f") + " deg")
+                Telemetry("h_acc", if (s.geoHAccuracyM < 0) "n/a" else fmt(s.geoHAccuracyM, "%.1f") + " m")
+            }
+        }
 
         Section("PERCEPTION")
         val p = hud.perception

@@ -22,6 +22,18 @@ android {
         // 64-bit only: 16 KB page size is a 64-bit feature, and modern devices are
         // arm64. Drops legacy 32-bit ABIs (smaller APK, no misaligned 32-bit libs).
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+
+        // ARCore Geospatial (VPS) API key. Put `AR_API_KEY=...` in local.properties
+        // (a Google Cloud key with the ARCore API enabled). Absent key => Geospatial
+        // stays disabled and the app falls back to the GPS+VIO path; nothing breaks.
+        val arApiKey = (project.findProperty("AR_API_KEY") as String?)
+            ?: rootProject.file("local.properties").takeIf { it.exists() }
+                ?.readLines()
+                ?.firstOrNull { it.startsWith("AR_API_KEY=") }
+                ?.substringAfter("=")?.trim()
+            ?: ""
+        manifestPlaceholders["arApiKey"] = arApiKey
+        buildConfigField("boolean", "HAS_AR_API_KEY", "${arApiKey.isNotBlank()}")
     }
 
     buildTypes {
