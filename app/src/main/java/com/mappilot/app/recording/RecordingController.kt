@@ -111,7 +111,11 @@ class RecordingController @Inject constructor(
         emit(RecordingState.STOPPING)
         // Capture derived results before tearing down the controllers.
         val (assets, assetEmbeddings) = perceptionController.currentAssetsWithEmbeddings()
-        val landmarks = slamController.currentLandmarks()
+        // Voxel-downsample the sparse cloud for storage/display (the raw cloud stays
+        // in the MCAP); collapses near-duplicate points into one per 10 cm cell.
+        val landmarks = com.mappilot.assets.extraction.VoxelGrid.downsample(
+            slamController.currentLandmarks(), voxelSizeM = 0.1,
+        )
         val trajectoryGeoJson = slamController.trajectory.toGeoJson()
         // Coerce to finite: a non-finite length (NaN trajectory points) bound to the
         // NOT NULL trips.distanceM column would be stored as NULL → persist crash.

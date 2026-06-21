@@ -267,7 +267,9 @@ class PerceptionController @Inject constructor(
     fun currentAssetsWithEmbeddings(): Pair<List<Asset>, List<FloatArray?>> {
         val transform = fusion.currentTransform() ?: return emptyList<Asset>() to emptyList()
         val enuFrame = fusion.originFrame() ?: return emptyList<Asset>() to emptyList()
-        val snapshot = tracker.assets // single ordered snapshot
+        // Track-length gating: only promote landmarks re-observed across frames, which
+        // drops one-frame false positives before they reach the dataset.
+        val snapshot = tracker.assets.filter { it.observations >= MIN_PROMOTE_OBSERVATIONS }
         val assets = snapshot.map { t ->
             val geo = enuFrame.toGeo(transform.apply(t.world))
             Asset(
@@ -293,5 +295,10 @@ class PerceptionController @Inject constructor(
         scheduler.reset()
         _state.value = _state.value.copy(active = false)
         Log.i(Streams.PERCEPTION, "Perception stopped: ${tracker.count} assets")
+    }
+
+    private companion object {
+        /** Re-observations required before a landmark is promoted into the dataset. */
+        const val MIN_PROMOTE_OBSERVATIONS = 2
     }
 }
