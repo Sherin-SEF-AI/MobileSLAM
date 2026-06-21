@@ -25,6 +25,18 @@ MapPilot records time-synchronized camera, IMU, and GNSS, tracks the device in 3
 
 ---
 
+## Real captures from the field
+
+A sparse point cloud from a single on-device session on a Galaxy A17, about 1.2 km on foot, 47,839 points after confidence filtering.
+
+<p align="center">
+  <img src="docs/samples/trip10_topdown.png" width="760" alt="Top-down point cloud of a 1.2 km walk">
+</p>
+
+More renders and the raw colored point clouds (`.ply`, open in CloudCompare or MeshLab) are in [docs/samples](docs/samples). These particular clouds are in the local VIO frame, not yet georeferenced, so the height spread is visual-inertial drift over the walk; the Geospatial (VPS) path turns this into absolute WGS84.
+
+---
+
 ## Why MapPilot is different
 
 Most mapping apps either stream raw video to a server or fabricate plausible looking results when a sensor is missing. MapPilot does neither.
