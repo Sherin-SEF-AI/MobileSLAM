@@ -3,6 +3,7 @@ package com.mappilot.recording.mcap
 import com.mappilot.core.common.log.Log
 import com.mappilot.core.common.log.Streams
 import java.io.File
+import java.io.RandomAccessFile
 
 /**
  * Recovers an MCAP file left unsealed by a crash. The writer flushes after every
@@ -26,6 +27,19 @@ object McapRecoverer {
     fun recover(file: File): Outcome {
         if (!file.exists() || file.length() < Mcap.MAGIC.size) {
             return Outcome.Failed("file missing or too small")
+        }
+        // Cheap triage: a properly finalized MCAP ends with the closing magic. Reading
+        // only the tail avoids loading a large valid file fully into memory (a long
+        // session can exceed the heap; see the OOM this guards against).
+        if (endsWithMagic(file)) {
+            Log.i(Streams.RECORDING, "MCAP ${file.name} already valid (sealed)")
+            return Outcome.AlreadyValid
+        }
+        // A truncated file must be rebuilt, which currently buffers it in memory. Refuse
+        // to attempt that on a file too large to hold safely, rather than OOM the app.
+        if (file.length() > RECOVERY_MAX_BYTES) {
+            Log.w(Streams.RECORDING, "MCAP ${file.name} truncated but too large (${file.length()} B) to recover in memory; left as-is")
+            return Outcome.Failed("truncated file too large to recover (${file.length()} bytes)")
         }
         return try {
             val bytes = file.readBytes()
@@ -63,9 +77,30 @@ object McapRecoverer {
             file.renameTo(broken)
             tmp.renameTo(file)
             Outcome.Recovered(r.messages.size, r.chunkCount)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Catch Throwable (incl. OutOfMemoryError): a single unrecoverable file must
+            // never crash app startup. Recovery runs best-effort on a background thread.
             Log.e(Streams.RECORDING, e, "MCAP recovery failed for ${file.name}")
             Outcome.Failed(e.message ?: e.javaClass.simpleName)
         }
     }
+
+    /** True if the file ends with the MCAP closing magic, i.e. the writer finished it. */
+    private fun endsWithMagic(file: File): Boolean {
+        val magic = Mcap.MAGIC
+        if (file.length() < magic.size) return false
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(file.length() - magic.size)
+                val tail = ByteArray(magic.size)
+                raf.readFully(tail)
+                tail.contentEquals(magic)
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Largest truncated file we will rebuild in memory; above this we decline safely. */
+    private const val RECOVERY_MAX_BYTES = 48L * 1024 * 1024
 }
