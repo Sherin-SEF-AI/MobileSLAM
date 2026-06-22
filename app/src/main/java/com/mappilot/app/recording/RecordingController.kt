@@ -116,13 +116,30 @@ class RecordingController @Inject constructor(
         val landmarks = com.mappilot.assets.extraction.VoxelGrid.downsample(
             slamController.currentLandmarks(), voxelSizeM = 0.1,
         )
-        val trajectoryGeoJson = slamController.trajectory.toGeoJson()
+        val sessionData = stopCollecting()
+
+        // Drift-corrected trajectory: a pose graph over the keyframe odometry pulled
+        // onto the GPS fixes (removes the slow VIO drift the online transform can't).
+        // Falls back to the online trajectory when it can't solve.
+        val gpsFixes = sessionData.epochs.mapNotNull { ep ->
+            ep.fix?.let { fx ->
+                com.mappilot.slam.fusion.TrajectoryRefiner.TimedGeo(
+                    fx.timestampNs,
+                    com.mappilot.core.model.GeoPoint(fx.latitude, fx.longitude, fx.altitude),
+                    fx.hAccuracyM,
+                )
+            }
+        }
+        val refinedGeo = slamController.refineTrajectory(sessionData.keyframes, gpsFixes)
+        val refined = refinedGeo.size >= 2
+        if (refined) Log.i(Streams.RECORDING, "Drift-corrected trajectory: ${refinedGeo.size} pts, ${"%.1f".format(pathLengthM(refinedGeo))} m")
+
+        val trajectoryGeoJson = if (refined) geoJsonLineString(refinedGeo) else slamController.trajectory.toGeoJson()
         // Coerce to finite: a non-finite length (NaN trajectory points) bound to the
         // NOT NULL trips.distanceM column would be stored as NULL → persist crash.
-        val trajectoryLengthM = slamController.trajectory.lengthM().let { if (it.isFinite()) it else 0.0 }
+        val trajectoryLengthM = (if (refined) pathLengthM(refinedGeo) else slamController.trajectory.lengthM()).let { if (it.isFinite()) it else 0.0 }
         val slamScore = slamController.slamState.value.quality.coerceAtLeast(0f).let { if (it.isFinite()) it else 0f }
         val gnssScore = if (slamController.fusionState.value.aligned) 1f else 0f
-        val sessionData = stopCollecting()
 
         thermalManager.stop()
         storageManager.stop()
@@ -182,6 +199,33 @@ class RecordingController @Inject constructor(
                 events = collectedEvents.toList(),
             )
         }
+    }
+
+    /** GeoJSON LineString for the trajectory sidecar (parsed by the Session Detail map). */
+    private fun geoJsonLineString(points: List<com.mappilot.core.model.GeoPoint>): String {
+        val sb = StringBuilder(96 + points.size * 24)
+        sb.append("{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"kind\":\"trajectory\"},")
+            .append("\"geometry\":{\"type\":\"LineString\",\"coordinates\":[")
+        points.forEachIndexed { i, p ->
+            if (i > 0) sb.append(',')
+            sb.append('[').append(p.longitude).append(',').append(p.latitude).append(']')
+        }
+        sb.append("]}}]}")
+        return sb.toString()
+    }
+
+    private fun pathLengthM(points: List<com.mappilot.core.model.GeoPoint>): Double {
+        var sum = 0.0
+        for (i in 1 until points.size) {
+            val a = points[i - 1]; val b = points[i]
+            val dLat = Math.toRadians(b.latitude - a.latitude)
+            val dLon = Math.toRadians(b.longitude - a.longitude)
+            val la1 = Math.toRadians(a.latitude); val la2 = Math.toRadians(b.latitude)
+            val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+            sum += 2 * 6_371_000.0 * Math.asin(Math.min(1.0, Math.sqrt(h)))
+        }
+        return sum
     }
 
     /**

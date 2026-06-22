@@ -118,6 +118,22 @@ class SlamController @Inject constructor(
         }
     }
 
+    /**
+     * Offline drift-corrected WGS84 trajectory for a finished session: pose-graph
+     * optimization over the keyframe odometry pulled onto the GPS fixes. Empty when
+     * georeferencing never aligned or there aren't enough anchors (caller falls back
+     * to the online trajectory).
+     */
+    fun refineTrajectory(
+        keyframes: List<com.mappilot.core.model.Keyframe>,
+        gpsFixes: List<com.mappilot.slam.fusion.TrajectoryRefiner.TimedGeo>,
+    ): List<GeoPoint> {
+        val frame = fusion.originFrame() ?: return emptyList()
+        val transform = fusion.currentTransform() ?: return emptyList()
+        val vio = keyframes.map { com.mappilot.slam.fusion.TrajectoryRefiner.TimedPos(it.pose.timestampNs, it.pose.position) }
+        return com.mappilot.slam.fusion.TrajectoryRefiner.refine(vio, gpsFixes, frame, transform)
+    }
+
     fun stop() {
         slamEngine.stop()
         scope.coroutineContext.cancelChildren()
