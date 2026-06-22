@@ -179,6 +179,14 @@ class PerceptionController @Inject constructor(
             eventBus.emit(MapPilotEvent.AssetsExtracted(image.timestampNs, assets))
         }
 
+        diagFrames++; diagDetTotal += detections.size
+        if (diagFrames % 40 == 0) {
+            Log.i(
+                Streams.PERCEPTION,
+                "perception diag: frames=$diagFrames detTotal=$diagDetTotal depthMiss=$diagDepthMiss noTransform=$diagNoTransform noPose=$diagNoPose noIntr=$diagNoIntr assetsTracked=${tracker.count}",
+            )
+        }
+
         _state.value = _state.value.copy(
             framesProcessed = scheduler.accepted,
             framesDropped = scheduler.dropped,
@@ -187,13 +195,21 @@ class PerceptionController @Inject constructor(
         )
     }
 
+    // Diagnostic tallies for "no assets" triage (logged every ~40 processed frames).
+    private var diagFrames = 0
+    private var diagDetTotal = 0
+    private var diagDepthMiss = 0
+    private var diagNoTransform = 0
+    private var diagNoPose = 0
+    private var diagNoIntr = 0
+
     /** Backproject + dedup + georeference. Skips assets lacking depth or alignment. */
     private fun georeference(detections: List<Detection>, frame: InferenceFrame): List<Asset> {
         if (detections.isEmpty()) return emptyList()
-        val pose = latestPose ?: return emptyList()
-        val transform = fusion.currentTransform() ?: return emptyList() // null until VIO→ENU aligned
+        val pose = latestPose ?: run { diagNoPose += detections.size; return emptyList() }
+        val transform = fusion.currentTransform() ?: run { diagNoTransform += detections.size; return emptyList() } // null until VIO→ENU aligned
         val enuFrame = fusion.originFrame() ?: return emptyList()
-        val intr = scaledIntrinsics(frame.width, frame.height) ?: return emptyList()
+        val intr = scaledIntrinsics(frame.width, frame.height) ?: run { diagNoIntr += detections.size; return emptyList() }
 
         val out = ArrayList<Asset>()
         for (det in detections) {
@@ -201,7 +217,7 @@ class PerceptionController @Inject constructor(
             val v = det.box.centerY.toDouble()
             // Metric depth from ARCore at the detection centre (no fabricated depth).
             val depthM = slamEngine.depthAt(det.box.centerX / frame.width, det.box.centerY / frame.height)
-            if (!depthM.isFinite()) continue
+            if (!depthM.isFinite()) { diagDepthMiss++; continue }
             val world = Backprojection.backproject(u, v, depthM.toDouble(), intr, pose.position, pose.orientation)
                 ?: continue
             // Skip non-finite world (NaN ARCore pose during poor tracking) so it never
