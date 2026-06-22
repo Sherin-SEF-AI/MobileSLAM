@@ -129,24 +129,41 @@ class ArcoreSlamEngine @Inject constructor(
             egl.create()
             val s = Session(context).also { session = it }
             depthSupported = s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
-            geospatialEnabled = runCatching { s.isGeospatialModeSupported(Config.GeospatialMode.ENABLED) }.getOrDefault(false)
-            semanticEnabled = runCatching { s.isSemanticModeSupported(Config.SemanticMode.ENABLED) }.getOrDefault(false)
             geoEmitCounter = 0; vpsChecked = false; lastVps = null; latestGeoState = GeospatialState()
             semanticData = null
-            val arConfig = Config(s).apply {
-                updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-                focusMode = Config.FocusMode.AUTO
-                if (depthSupported) depthMode = Config.DepthMode.AUTOMATIC
-                planeFindingMode = Config.PlaneFindingMode.DISABLED // mapping, not AR placement
-                // Earth-anchored (VPS) poses for drift-free, multi-session georeferencing.
-                // Needs an API key (manifest) at runtime; absent key surfaces as an Earth
-                // error state and the GPS+VIO path takes over, never a crash.
-                if (geospatialEnabled) geospatialMode = Config.GeospatialMode.ENABLED
-                // Scene Semantics: coarse per-pixel outdoor labels (ROAD, SIDEWALK, ...)
-                // used to label assets and reject implausible detections.
-                if (semanticEnabled) semanticMode = Config.SemanticMode.ENABLED
+            val wantGeo = runCatching { s.isGeospatialModeSupported(Config.GeospatialMode.ENABLED) }.getOrDefault(false)
+            val wantSem = runCatching { s.isSemanticModeSupported(Config.SemanticMode.ENABLED) }.getOrDefault(false)
+
+            // Build + apply the config, but degrade gracefully: an optional feature that
+            // the device/runtime can't honor (e.g. Geospatial needs the Play Services
+            // location lib + an API key) must NEVER kill core VIO tracking. Try the full
+            // config, then drop geospatial, then drop semantics; a basic config must work.
+            fun tryConfigure(geo: Boolean, sem: Boolean): Boolean = try {
+                s.configure(
+                    Config(s).apply {
+                        updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+                        focusMode = Config.FocusMode.AUTO
+                        if (depthSupported) depthMode = Config.DepthMode.AUTOMATIC
+                        planeFindingMode = Config.PlaneFindingMode.DISABLED // mapping, not AR placement
+                        if (geo) geospatialMode = Config.GeospatialMode.ENABLED
+                        if (sem) semanticMode = Config.SemanticMode.ENABLED
+                    },
+                )
+                true
+            } catch (e: Exception) {
+                Log.w(Streams.SLAM, "ARCore configure(geo=$geo, sem=$sem) failed: ${e.message}")
+                false
             }
-            s.configure(arConfig)
+
+            geospatialEnabled = wantGeo
+            semanticEnabled = wantSem
+            if (!tryConfigure(geospatialEnabled, semanticEnabled)) {
+                geospatialEnabled = false // most common failure (location lib / key)
+                if (!tryConfigure(geospatialEnabled, semanticEnabled)) {
+                    semanticEnabled = false
+                    check(tryConfigure(false, false)) { "ARCore basic configure failed" }
+                }
+            }
             Log.i(Streams.SLAM, "ARCore configured (geospatial=$geospatialEnabled, semantics=$semanticEnabled)")
             s.setCameraTextureName(egl.cameraTextureId)
             s.resume()

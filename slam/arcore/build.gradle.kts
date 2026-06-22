@@ -13,5 +13,7 @@ dependencies {
     implementation(project(":core:time-sync"))
     implementation(project(":slam:core"))
     implementation(libs.arcore)
+    // Required to call Session.configure() with Geospatial mode enabled.
+    implementation(libs.play.services.location)
     implementation(libs.kotlinx.coroutines.android)
 }

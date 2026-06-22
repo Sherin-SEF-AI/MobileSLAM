@@ -93,6 +93,8 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 
 # ARCore
 arcore = { group = "com.google.ar", name = "core", version.ref = "arcore" }
+# Required by ARCore Geospatial (Config.GeospatialMode.ENABLED) at configure() time.
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version = "21.3.0" }
 
 # MapLibre
 maplibre = { group = "org.maplibre.gl", name = "android-sdk", version.ref = "maplibre" }
