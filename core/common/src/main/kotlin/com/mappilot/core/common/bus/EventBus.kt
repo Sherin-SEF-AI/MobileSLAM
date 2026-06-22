@@ -33,6 +33,10 @@ class SharedFlowEventBus @Inject constructor() : EventBus {
     override fun emit(event: MapPilotEvent): Boolean = _events.tryEmit(event)
 
     private companion object {
-        const val BUFFER_CAPACITY = 256
+        // Sized so a brief consumer stall can't evict the sparse but critical low-rate
+        // events (e.g. ~1 Hz GnssFixReceived, which the VIO->ENU fusion needs to align)
+        // under the steady few-hundred-Hz IMU/rotation/pose traffic. DROP_OLDEST still
+        // protects sensor callbacks from back-pressure.
+        const val BUFFER_CAPACITY = 1024
     }
 }

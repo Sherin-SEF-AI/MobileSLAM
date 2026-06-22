@@ -55,9 +55,22 @@ class GnssVioFusion @Inject constructor(
     /** Once VPS provides a transform, GPS-based alignment yields to it (more accurate). */
     @Volatile private var vpsActive = false
 
+    private var gnssFixCount = 0
+
     /** Recent VIO poses keyed by timestamp, to pair with a GNSS fix near its time. */
     private val recentPoses = ConcurrentHashMap<Long, Pose>()
     private val poseRing = ArrayDeque<Long>()
+
+    /**
+     * GNSS fixes that arrived before their near-in-time VIO pose. Camera/bus latency can
+     * deliver a frame to the fusion a few hundred ms after the GPS fix for the same
+     * instant, so the matching pose isn't in [recentPoses] yet when the fix is processed.
+     * These are held briefly and paired retroactively in [onPose]; without this a real fix
+     * is discarded forever and a session can fail to georeference even though its recorded
+     * poses and fixes pair perfectly offline.
+     */
+    private data class PendingFix(val ts: Long, val fix: GeoPoint)
+    private val pendingFixes = ArrayDeque<PendingFix>()
 
     @Synchronized
     fun reset() {
@@ -69,17 +82,30 @@ class GnssVioFusion @Inject constructor(
         vpsActive = false
         recentPoses.clear()
         poseRing.clear()
+        pendingFixes.clear()
+        gnssFixCount = 0
         _state.value = FusionState()
     }
 
     /** Feed a VIO pose. Republishes it as ENU when a transform exists. */
+    @Synchronized
     fun onPose(pose: Pose) {
         if (pose.trackingState == TrackingState.TRACKING) {
             recentPoses[pose.timestampNs] = pose
             poseRing.addLast(pose.timestampNs)
-            while (poseRing.size > POSE_RING_CAPACITY) {
+            // Prune by TIME, not a fixed count: ARCore emits poses at hundreds of Hz on
+            // some devices, so a count-based ring collapses to a fraction of a second of
+            // history and laggy GPS fixes (delivered 1s+ after their timestamp) can never
+            // find their matching pose. Keep a generous time window; a hard count cap is
+            // only a memory backstop for pathological rates.
+            val cutoff = pose.timestampNs - POSE_RETENTION_NS
+            while (poseRing.isNotEmpty() &&
+                (poseRing.first() < cutoff || poseRing.size > POSE_RING_CAPACITY)
+            ) {
                 recentPoses.remove(poseRing.removeFirst())
             }
+            // A new pose may be the partner a deferred GPS fix was waiting for.
+            if (pendingFixes.isNotEmpty()) resolvePendingFixes()
         }
         val t = transform ?: return
         val enu = t.apply(pose.position)
@@ -126,15 +152,39 @@ class GnssVioFusion @Inject constructor(
     /** Feed a GNSS fix. Adds a correspondence (if a near-in-time VIO pose exists) and re-solves. */
     @Synchronized
     fun onGnssFix(fix: GeoPoint, fixTimestampNs: Long, hAccuracyM: Float) {
+        gnssFixCount++
+        val diag = gnssFixCount % 5 == 1 // sample ~every 5th fix to avoid spam
         if (vpsActive) return // VPS transform is live and more accurate; ignore GPS
-        if (hAccuracyM > MAX_FIX_ACCURACY_M && hAccuracyM >= 0) return // too noisy to anchor on
-        val frame = enuFrame ?: EnuFrame(fix).also { enuFrame = it }
+        if (hAccuracyM > MAX_FIX_ACCURACY_M && hAccuracyM >= 0) {
+            if (diag) Log.w(Streams.FUSION, "fix rejected: acc=${hAccuracyM}m > ${MAX_FIX_ACCURACY_M}m")
+            return
+        }
+        enuFrame = enuFrame ?: EnuFrame(fix)
 
-        val pose = nearestPose(fixTimestampNs) ?: return
-        // Never anchor on a non-finite VIO pose (ARCore can emit NaN during poor
-        // tracking) — it would poison the Umeyama solution and every georeferenced
-        // point derived from it.
-        if (!pose.position.x.isFinite() || !pose.position.y.isFinite() || !pose.position.z.isFinite()) return
+        val pose = nearestPose(fixTimestampNs)
+        if (pose == null) {
+            // The VIO pose nearest this fix may simply not have arrived at the fusion yet
+            // (camera/bus latency delivers the frame after the GPS fix for the same
+            // instant). Defer it; onPose pairs it once the matching pose shows up.
+            pendingFixes.addLast(PendingFix(fixTimestampNs, fix))
+            while (pendingFixes.size > MAX_PENDING_FIXES) pendingFixes.removeFirst()
+            if (diag) Log.w(Streams.FUSION, "fix deferred: no VIO pose yet near ts=$fixTimestampNs (pending=${pendingFixes.size}, poses=${recentPoses.size})")
+            return
+        }
+        if (addCorrespondence(pose, fix)) {
+            if (diag) Log.i(Streams.FUSION, "fix paired (acc=${hAccuracyM}m, corr=${vioPoints.size}, poses=${recentPoses.size})")
+            solveAndPublish(diag)
+        }
+    }
+
+    /**
+     * Add one VIO<->GPS correspondence. Returns false (and adds nothing) for a non-finite
+     * VIO pose — ARCore can emit NaN during poor tracking, which would poison the Umeyama
+     * solution and every georeferenced point derived from it.
+     */
+    private fun addCorrespondence(pose: Pose, fix: GeoPoint): Boolean {
+        if (!pose.position.x.isFinite() || !pose.position.y.isFinite() || !pose.position.z.isFinite()) return false
+        val frame = enuFrame ?: return false
         vioPoints.add(pose.position)
         enuPoints.add(frame.toEnu(fix))
         // Slide a window over recent correspondences: a single global similarity can't
@@ -143,13 +193,29 @@ class GnssVioFusion @Inject constructor(
         while (vioPoints.size > MAX_CORRESPONDENCES) {
             vioPoints.removeAt(0); enuPoints.removeAt(0)
         }
+        return true
+    }
 
+    /** Re-solve VIO->ENU from the accumulated correspondences and publish if accepted. */
+    private fun solveAndPublish(diag: Boolean) {
         if (vioPoints.size < Umeyama.MIN_CORRESPONDENCES) return
-        val sol = Umeyama.solve(vioPoints, enuPoints) ?: return
+        val sol = Umeyama.solve(vioPoints, enuPoints)
+        if (sol == null) {
+            if (diag) Log.w(Streams.FUSION, "Umeyama returned null (degenerate, corr=${vioPoints.size})")
+            return
+        }
         // Reject non-finite solutions too: a NaN rms slips past `> MAX` (NaN
         // comparisons are always false), which would otherwise store a NaN transform.
         if (!sol.rmsErrorM.isFinite() || sol.rmsErrorM > MAX_RMS_ERROR_M) {
             Log.w(Streams.FUSION, "Alignment rejected: RMS ${"%.2f".format(sol.rmsErrorM)}m > ${MAX_RMS_ERROR_M}m")
+            return
+        }
+        // VIO and ENU are both metric, so the similarity scale must be ~1. A wildly off
+        // scale means the device has barely moved while GPS jittered (e.g. sitting still
+        // indoors): the solve is fitting GPS noise, not real motion. Reject it — and keep
+        // waiting until there is enough travel to anchor on. Prevents a garbage map.
+        if (sol.scale < MIN_SCALE || sol.scale > MAX_SCALE) {
+            Log.w(Streams.FUSION, "Alignment rejected: scale ${"%.2f".format(sol.scale)} out of [$MIN_SCALE,$MAX_SCALE] (too little motion vs GPS noise)")
             return
         }
         transform = sol
@@ -165,6 +231,27 @@ class GnssVioFusion @Inject constructor(
             Streams.FUSION,
             "VIO→ENU aligned: n=${sol.correspondences} scale=${"%.3f".format(sol.scale)} rms=${"%.2f".format(sol.rmsErrorM)}m",
         )
+    }
+
+    /** Pair any deferred GPS fixes whose VIO pose has now arrived; drop ones gone stale. */
+    private fun resolvePendingFixes() {
+        if (vpsActive) { pendingFixes.clear(); return }
+        val oldestPose = poseRing.firstOrNull()
+        var added = false
+        val it = pendingFixes.iterator()
+        while (it.hasNext()) {
+            val pf = it.next()
+            val pose = nearestPose(pf.ts)
+            if (pose != null) {
+                if (addCorrespondence(pose, pf.fix)) added = true
+                it.remove()
+            } else if (oldestPose != null && pf.ts < oldestPose - MAX_PAIR_DELTA_NS) {
+                // Its pose window has fully passed without a match (e.g. tracking was lost
+                // around that instant); stop waiting.
+                it.remove()
+            }
+        }
+        if (added) solveAndPublish(false)
     }
 
     /** Current transform's ENU origin, for converting ENU back to geo. */
@@ -185,8 +272,12 @@ class GnssVioFusion @Inject constructor(
     }
 
     private companion object {
-        const val POSE_RING_CAPACITY = 600
+        const val POSE_RETENTION_NS = 20_000_000_000L // keep 20s of pose history (tolerates GPS delivery lag)
+        const val POSE_RING_CAPACITY = 16_000 // memory backstop (~28s at 575Hz, far more at typical rates)
         const val MAX_PAIR_DELTA_NS = 100_000_000L // 100 ms
+        const val MAX_PENDING_FIXES = 64 // deferred fixes awaiting their VIO pose
+        const val MIN_SCALE = 0.5 // VIO<->ENU are both metric; reject implausible similarity scale
+        const val MAX_SCALE = 2.0
         // Consumer-grade GNSS: accept fixes up to ~35 m accuracy, and accept an
         // alignment whose residual is within the phone-GPS noise floor (a 5 m gate is
         // below that floor, so it rejected every real fix). Tighter accuracy comes

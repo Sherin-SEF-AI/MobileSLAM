@@ -66,6 +66,7 @@ class ArcoreSlamEngine @Inject constructor(
     private var thread: Thread? = null
     private var session: Session? = null
     private var landmarkEmitCounter = 0
+    private var lastFrameTs = -1L
     private var depthSupported = false
 
     // ARCore Geospatial (VPS) state, all on the AR thread.
@@ -130,6 +131,7 @@ class ArcoreSlamEngine @Inject constructor(
             val s = Session(context).also { session = it }
             depthSupported = s.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
             geoEmitCounter = 0; vpsChecked = false; lastVps = null; latestGeoState = GeospatialState()
+            lastFrameTs = -1L; landmarkEmitCounter = 0
             semanticData = null
             val wantGeo = runCatching { s.isGeospatialModeSupported(Config.GeospatialMode.ENABLED) }.getOrDefault(false)
             val wantSem = runCatching { s.isSemanticModeSupported(Config.SemanticMode.ENABLED) }.getOrDefault(false)
@@ -194,6 +196,17 @@ class ArcoreSlamEngine @Inject constructor(
     private fun process(frame: Frame, graph: PoseGraph, selector: KeyframeSelector) {
         val camera = frame.camera
         val ts = frame.timestamp
+        // ARCore runs in LATEST_CAMERA_IMAGE (non-blocking) mode, so this render loop spins
+        // far faster than the ~30 Hz camera and update() keeps returning the SAME frame. Emitting
+        // a PoseUpdate per spin (~575 Hz on this device, ~19x the real frame rate) floods the
+        // event bus (256-slot DROP_OLDEST), evicting the sparse ~1 Hz GnssFixReceived events
+        // before the fusion can consume them — so VIO->ENU georeferencing never aligns. Process
+        // each camera frame exactly once.
+        if (ts == lastFrameTs) {
+            try { Thread.sleep(SPIN_IDLE_MS) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+            return
+        }
+        lastFrameTs = ts
         val trackingState = camera.trackingState.toModel()
         val pose = Pose(
             timestampNs = ts,
@@ -441,6 +454,7 @@ class ArcoreSlamEngine @Inject constructor(
 
     private companion object {
         const val LANDMARK_EMIT_EVERY = 10 // ~3 Hz at 30 fps
+        const val SPIN_IDLE_MS = 2L // yield CPU when update() returns an already-processed frame
         const val STOP_TIMEOUT_MS = 3_000L
         const val MIN_POINT_CONFIDENCE = 0.3f // drop the low-confidence point-cloud tail
         const val GEO_EMIT_EVERY = 15 // ~2 Hz geospatial correspondences at 30 fps
